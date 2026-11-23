@@ -1319,12 +1319,15 @@ class ThermalExportDialog(pya.QDialog):
         self.stackup_label.setToolTip(tip)
         technology = layout_technology(self.em_layout)[0]
         try:
-            target = heat_target(self.stackup, technology)
-        except ValueError as e:
+            sources = heat_sources(self.em_layout, self.cell, self.stackup, technology, self.box)
+        except ValueError as e:     # devices in the region, but the stackup has no layer for their heat sources
             self.sources.setText(_marked(ERROR, "no layer for the heat sources"))
             self.sources.setToolTip(str(e))
             return
-        sources = heat_sources(self.em_layout, self.cell, self.stackup, technology, self.box)
+        try:
+            target = heat_target(self.stackup, technology)
+        except ValueError:
+            target = None           # no devices, so no such layer needed
         self.export_button.setEnabled(True)
         kinds, origin, left_out = marker_preview(self.em_layout, self.cell, self.stackup, self.box,
                                                  self.layout_file, native_path(self.output.text.strip()), technology)
@@ -1343,7 +1346,8 @@ class ThermalExportDialog(pya.QDialog):
             parts.append(f"{len(cut)} cut by the region")
         if unset:
             parts.append(_count(len(unset), "marker") + " without settings")
-        tips = [f"One per device, in the z range of {target_names(sources, target)}; power 0 W until set in "
+        tips = [f"One per device, in the z range of {target_names(sources, target or 'its heat target layer')}; "
+                "power 0 W until set in "
                 "setupThermal."]
         if fallback:
             tips.append("Without heat area, the bounding box is used (a lower peak temperature): " + ", ".join(fallback))

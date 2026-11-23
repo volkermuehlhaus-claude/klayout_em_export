@@ -136,7 +136,8 @@ def heat_target(stackup, technology, device=None):
     """Name of the stackup layer that holds the heat sources, or None for a technology without devices. With a
     device: the first of the technology's layers for it (heat_targets) that the stackup has with a thickness, else
     the technology's HEAT_TARGET, as without a device (so a stackup without heat target layers still works).
-    Raises ValueError if the stackup lacks HEAT_TARGET or it has no thickness (a heat source is a volume)."""
+    Raises ValueError if the stackup lacks HEAT_TARGET or it has no thickness (a heat source is a volume). Only the
+    devices need it: a stackup without it (e.g. an interposer's) is fine for a region without devices."""
     name = getattr(technology, "HEAT_TARGET", None)
     if name is None:
         return None
@@ -171,7 +172,8 @@ class HeatSource:
 
 
 def heat_sources(layout, cell, stackup, technology, box=None):
-    """The heat sources of the devices in cell whose heat area touches box (DBox in µm, None: whole cell)."""
+    """The heat sources of the devices in cell whose heat area touches box (DBox in µm, None: whole cell). Raises
+    ValueError if there are any and the stackup has no layer for them (heat_target); without devices, none needed."""
     devices = layout_devices(layout, cell, stackup, technology)[0]
     clip = _clip(layout, box)
     sources = []
@@ -184,7 +186,15 @@ def heat_sources(layout, cell, stackup, technology, box=None):
                 continue
             cut = inside.area() < area.area()
             area = inside
-        sources.append(HeatSource(device, area, how, cut, heat_target(stackup, technology, device)))
+        sources.append(HeatSource(device, area, how, cut, None))     # target below
+    missing = []
+    for source in sources:
+        try:
+            source.target = heat_target(stackup, technology, source.device)
+        except ValueError as e:
+            missing.append(str(e))
+    if missing:
+        raise ValueError(f"{len(missing)} device(s) in the region need a layer for their heat sources: {missing[0]}")
     return sources
 
 
@@ -265,9 +275,13 @@ def export_thermal(layout, cell, stackup, gds_path, technology, box=None, lvsdb=
     the region), kept_settings, lvs (None without lvsdb, else named (count), unnamed, conflicts, outside, notes),
     markers ({layer: 'source', 'constanttemp' or None for a marker without a row}), markers_from (the layout's
     setupThermal file the rows came from, or None), left_out ([(layer, datatype)] not in the stackup), report.
-    Raises ValueError if the stackup has no usable layer for the heat sources or lvsdb is unusable."""
-    target = heat_target(stackup, technology)
+    Raises ValueError if the region has devices and the stackup no usable layer for their heat sources, or lvsdb is
+    unusable."""
     sources = heat_sources(layout, cell, stackup, technology, box)
+    try:
+        target = heat_target(stackup, technology)
+    except ValueError:
+        target = None           # no devices in the region (else heat_sources raised): the stackup needs no such layer
     base = os.path.splitext(gds_path)[0]
     powers, instances, old_lvsdb, old_cfg, old_markers = _previous(base)
     markers, markers_from = user_markers(layout, cell, stackup, box, layout_file, exclude=(base + ".tsimcfg",))

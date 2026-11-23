@@ -1,5 +1,13 @@
 # What's new
 
+## Unreleased
+
+**Fix: thermal export with a stackup without the devices' heat source layer** (e.g. an interposer stackup without
+Activ). The Thermal mode refused it ("no layer for the heat sources"), even for a region without devices, so the
+layout could not be exported at all. That layer is now only needed when the region has devices: without devices,
+Sources says "no devices in the region" as usual, and the export writes the model, with your own heat source markers.
+A region with devices and no such layer is still refused, and the message says how many devices need it.
+
 ## 0.4.0 (16 November 2026)
 
 Works with setupEM 0.18.4 or newer for one more thing: after Open in setupEM, Ctrl+S in setupEM saves into the

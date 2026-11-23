@@ -20,7 +20,7 @@ from .lvs import assign_names, read_lvs_devices
 from .pieces import outer_ports, piece_ports, split_state
 from .ports import collect_ports, device_of, export_numbering, export_port_numbers, is_complete, port_problems
 from .regions import cuts_of, is_split
-from .thermal import describe_markers, heat_sources, heat_target, marker_layers, marker_preview, target_names
+from .thermal import describe_markers, heat_sources, marker_layers, marker_preview, target_names
 
 OK, WARN, ERROR = gui.OK, gui.WARN, gui.ERROR
 COLUMNS = ("#", "Layer", "Port", "Export #", "Status")
@@ -866,12 +866,12 @@ class EMPanel(pya.QWidget):
             self._show_boundary(layout, None)
             return
         technology = gui.layout_technology(layout)[0]
+        supported = getattr(technology, "HEAT_TARGET", None) is not None
+        blocked = None          # devices in the region, but the stackup has no layer for their heat sources
         try:
-            target = heat_target(stackup, technology)
+            sources = heat_sources(layout, cell, stackup, technology, box) if supported else []
         except ValueError as e:
-            self.sources_step.set(ERROR, "no layer for the heat sources", str(e))
-            target = False
-        sources = heat_sources(layout, cell, stackup, technology, box) if target else []
+            sources, blocked = [], str(e)
         kinds, origin, _ = marker_preview(layout, cell, stackup, box, gui._layout_file(layout) or None,
                                           gui.native_path(gui.layout_value(layout, gui.META_THERMAL_OUTPUT) or ""),
                                           technology)
@@ -882,15 +882,15 @@ class EMPanel(pya.QWidget):
         names = self._show_names(layout, cell, sources, technology)
         self._fill_sources(layout, technology, sources, layers[1:], names)
         self._show_boundary(layout, layers[0])
-        if target is None:
+        if not supported:
             self.sources_step.set(OK, "no device support for this technology")
-        elif target is False:
-            pass
+        elif blocked:
+            self.sources_step.set(ERROR, "no layer for the heat sources", blocked)
         elif not sources:
             self.sources_step.set(OK if own_sources else WARN, f"no devices{own}" if own_sources else
                                   "no devices in the region: the export has no heat sources", own_tip.strip())
         else:
-            parts = [f"{len(sources)} heat source(s) in {target_names(sources, target)}"]
+            parts = [f"{len(sources)} heat source(s) in {target_names(sources, '')}"]
             fallback = sum(not s.from_pdk for s in sources)
             from_rule = sum(s.how == "rule" for s in sources)
             cut = sum(s.cut for s in sources)

@@ -129,6 +129,69 @@ check([t for t in cfg["thermal"] if t["type"] != "source"] ==
       [{"source_layernum": thermal_map["outline_layer"], "target_layername": "", "type": "constanttemp", "temp": 300.0}],
       ".tsimcfg: one placeholder boundary, on the region outline, without a target layer")
 
+# a stackup without Activ (an interposer's): the layer for the devices' heat sources is only needed with devices.
+# A region without devices exports (the user's own marker source stays); one with devices is refused.
+interposer_xml = os.path.join(OUT, "interposer_without_activ.xml")
+with open(interposer_xml, "w", encoding="utf-8") as f:
+    f.write("""<?xml version="1.0" encoding="UTF-8"?>
+<Stackup schemaVersion="2.0">
+  <Materials>
+    <Material Name="TopMetal2" Type="Conductor" Conductivity="3e7" ThermalConductivity="237"/>
+    <Material Name="TFR" Type="Conductor" Conductivity="5e5" ThermalConductivity="100"/>
+    <Material Name="SiO2" Type="Dielectric" Permittivity="4.1" ThermalConductivity="1"/>
+    <Material Name="Si" Type="Semiconductor" Permittivity="11.9" Conductivity="0.025" ThermalConductivity="148"/>
+  </Materials>
+  <ELayers LengthUnit="um">
+    <Dielectrics>
+      <Dielectric Name="SiO2" Material="SiO2" Thickness="12"/>
+      <Dielectric Name="Substrate" Material="Si" Thickness="250"/>
+    </Dielectrics>
+    <Layers>
+      <Substrate Offset="250.0"/>
+      <Layer Name="TFR" Type="conductor" Zmin="1.19" Zmax="1.27" Material="TFR" Layer="146"/>
+      <Layer Name="TopMetal2" Type="conductor" Zmin="7.77" Zmax="10.77" Material="TopMetal2" Layer="134"/>
+    </Layers>
+  </ELayers>
+</Stackup>
+""")
+interposer = Stackup(interposer_xml)
+try:
+    heat_target(interposer, technology)
+    check(False, "the interposer stackup has no layer for the devices' heat sources")
+except ValueError:
+    pass
+ip_ly = pya.Layout()
+ip_ly.technology_name = "sg13g2"
+ip_ly.dbu = 0.001
+ip_cell = ip_ly.create_cell("Interposer")
+ip_cell.shapes(ip_ly.layer(134, 0)).insert(pya.DBox(-100, -100, 100, 100).to_itype(ip_ly.dbu))
+ip_cell.shapes(ip_ly.layer(146, 0)).insert(pya.DBox(-50, -10, 50, 10).to_itype(ip_ly.dbu))
+ip_cell.shapes(ip_ly.layer(203, 0)).insert(pya.DBox(-50, -10, 50, 10).to_itype(ip_ly.dbu))  # user's marker
+ip_gds = os.path.join(OUT, "interposer_thermal.gds")
+for suffix in (".tsimcfg", "_thermalmap.json"):
+    if os.path.exists(ip_gds[:-4] + suffix):
+        os.remove(ip_gds[:-4] + suffix)
+try:
+    ip = export_thermal(ip_ly, ip_cell, interposer, ip_gds, tech.for_layout(ip_ly)[0])
+    ip_map = json.load(open(ip["thermalmap"]))
+    ip_out, _ = shapes(ip_gds)
+    check(ip["sources"] == 0 and ip_map["target_layer"] is None and 203 in ip["markers"] and
+          (146, 0) in ip_out and (203, 0) in ip_out,
+          "a stackup without Activ, a region without devices: exported, TFR and the user's marker kept")
+except ValueError as e:
+    check(False, f"a stackup without Activ, a region without devices: export refused ({e})")
+no_activ_xml = os.path.join(OUT, "stackup_without_activ.xml")
+with open(STACKUP, encoding="utf-8") as f:
+    lines = [line for line in f if not any(f'<Layer Name="{name}"' in line
+                                           for name in ("Activ",) + HEAT_LAYER_NAMES)]
+with open(no_activ_xml, "w", encoding="utf-8") as f:
+    f.writelines(lines)
+try:
+    export_thermal(ly, cell, Stackup(no_activ_xml), os.path.join(OUT, "no_activ_thermal.gds"), technology)
+    check(False, "a stackup without Activ, a region with devices: export refused")
+except ValueError as e:
+    check("5 device(s)" in str(e), f"a stackup without Activ, a region with devices: export refused ({e})")
+
 # setupThermal: the boundary's target, powers and a setting; the map: an instance name; export again
 for t in cfg["thermal"]:
     if t["type"] == "source":
