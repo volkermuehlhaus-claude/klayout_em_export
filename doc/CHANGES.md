@@ -1,6 +1,16 @@
 # What's new
 
-## Unreleased
+## 0.5.0 (24 November 2026)
+
+Works with gds2palace 0.13.0 or newer for the resistor heads below; an older gds2palace stops on them with "Cont
+touches another conductor layer". Without `HEAT_RESISTOR` in the stackup, nothing changes.
+
+**Thermal: resistor heads carry heat to the contacts.** The heat source of a resistor is its polysilicon body; the
+polysilicon heads under the contacts are not heated, but they conduct heat from the body into the contacts and
+Metal1. Before, they were missing, and the body reached its contacts only through oxide. The thermal export now
+draws them on `HEAT_RESISTOR` as plain shapes, without the contacts' footprints, and the thermal map lists their area
+(`unheated_poly_um2`). For a 0.5 × 0.5 µm rhigh this lowers the thermal resistance by about 40 %, for 4 × 4 µm by
+about 8 %.
 
 **Fix: thermal export with a stackup without the devices' heat source layer** (e.g. an interposer stackup without
 Activ). The Thermal mode refused it ("no layer for the heat sources"), even for a region without devices, so the
