@@ -240,6 +240,10 @@ hidden; device replacement is not needed for it). The export writes:
   derives the same rectangles from the device's layers, as the PDK does (npn emitter windows grown by 0.05 µm,
   resistor bodies, MOS gates). Only a device with neither gets its bounding box, which the dialog and the panel
   list;
+- each resistor's polysilicon outside its heated body (the heads under the contacts, without the contacts'
+  footprints) on `HEAT_RESISTOR`, as plain unheated shapes: it joins the body to its contacts. Only with a stackup
+  that has `HEAT_RESISTOR`; needs gds2palace 0.13.0 or newer (an older one rejects the contacts passing through
+  it). The thermal map lists its area per device (`unheated_poly_um2`);
 - Activ.mask (1/20) with Activ: IHP's npn cells draw the silicon around each emitter there. The technology module
   names the datatypes the thermal export always keeps (`THERMAL_PURPOSES`, IHP: 0 and 20), together with those of
   the setupThermal files;

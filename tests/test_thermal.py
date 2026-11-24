@@ -106,6 +106,27 @@ for r in rows:
     devices_box += pya.Region(pya.DBox(*r["bbox_um"]).to_itype(dbu))
 check(not (out[(cont, 0)] & devices_box).is_empty(), "the devices' contacts are kept (heat paths)")
 
+# a resistor's polysilicon outside its heated body (the heads under the contacts) is drawn unheated on HEAT_RESISTOR,
+# without the contacts' footprints, so it joins the body to its contacts; other devices get none
+res_rows = [r for r in rows if r["pcell"] in technology.RESISTOR_PCELLS]
+heat_res = st.layer("HEAT_RESISTOR")
+drawn = out.get((heat_res.layer, 0), pya.Region()) if heat_res is not None else pya.Region()
+if has_targets:
+    check(res_rows and all(r["unheated_poly_um2"] > 0 for r in res_rows)
+          and all(r["unheated_poly_um2"] == 0 for r in rows if r not in res_rows),
+          f"unheated poly for the {len(res_rows)} resistor(s) only: {[r['unheated_poly_um2'] for r in rows]}")
+    check(abs(drawn.area() * dbu ** 2 - sum(r["unheated_poly_um2"] for r in res_rows)) < 1e-6,
+          "HEAT_RESISTOR in the GDS holds exactly that poly")
+    check((drawn & out[(cont, 0)]).is_empty(), "no poly under the contacts (Cont passes through, at the hole walls)")
+    res_heat = pya.Region()
+    for r in res_rows:
+        res_heat += out[(r["layer"], 0)]
+    check((drawn & res_heat).is_empty() and not (drawn.sized(1) & res_heat).is_empty(),
+          "the poly does not overlap the heated bodies but touches them")
+    check(not (drawn.sized(1) & out[(cont, 0)]).is_empty(), "the poly reaches the contacts (at the hole walls)")
+else:
+    check(drawn.is_empty(), "no heat target layers in the stackup: no unheated poly")
+
 cfg = json.load(open(result["tsimcfg"]))
 sources = [t for t in cfg["thermal"] if t["type"] == "source"]
 check(cfg["application"] == "setupThermal" and len(sources) == 5 and
@@ -114,8 +135,8 @@ by_layer = {t["source_layernum"]: t["target_layername"] for t in sources}
 check(all(by_layer[r["layer"]] == r["target_layer"] == expected_target(r["pcell"], has_targets) for r in rows),
       f"each heat source in the target layer of its device kind: {sorted(set(by_layer.values()))}")
 if has_targets:
-    check(not any((st.layer(name).layer, 0) in out for name in HEAT_LAYER_NAMES),
-          "nothing is drawn on the heat target layers")
+    check((st.layer("HEAT_TRANSISTOR").layer, 0) not in out,
+          "nothing is drawn on HEAT_TRANSISTOR (HEAT_RESISTOR: only the resistors' unheated poly, checked above)")
     # a stackup without the heat target layers (gds2palace before 0.10.0): every heat source in Activ, as before
     old_xml = os.path.join(OUT, "stackup_without_heat_targets.xml")
     with open(STACKUP, encoding="utf-8") as f:
@@ -180,6 +201,20 @@ try:
           "a stackup without Activ, a region without devices: exported, TFR and the user's marker kept")
 except ValueError as e:
     check(False, f"a stackup without Activ, a region without devices: export refused ({e})")
+# an older stackup without the heat target layers: the resistors heat Activ, and their poly is left out
+old_xml = os.path.join(OUT, "stackup_without_heat_targets.xml")
+with open(STACKUP, encoding="utf-8") as f:
+    lines = [line for line in f if not any(f'<Layer Name="{name}"' in line for name in HEAT_LAYER_NAMES)]
+with open(old_xml, "w", encoding="utf-8") as f:
+    f.writelines(lines)
+old_gds = os.path.join(OUT, "old_stackup_thermal.gds")
+old_result = export_thermal(ly, cell, Stackup(old_xml), old_gds, technology)
+old_rows = json.load(open(old_result["thermalmap"]))["sources"]
+old_out, _ = shapes(old_gds)
+check(all(r["unheated_poly_um2"] == 0 and r["target_layer"] == "Activ" for r in old_rows)
+      and not any(key[0] == st.layer("HEAT_RESISTOR").layer for key in old_out),
+      "an older stackup without heat target layers: no unheated poly drawn (resistors heat Activ)")
+
 no_activ_xml = os.path.join(OUT, "stackup_without_activ.xml")
 with open(STACKUP, encoding="utf-8") as f:
     lines = [line for line in f if not any(f'<Layer Name="{name}"' in line

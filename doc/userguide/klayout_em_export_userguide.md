@@ -910,7 +910,7 @@ Each heat source:
   too cool;
 - gets one power, which Elmer spreads over the device's fingers by their area.
 
-**Resistors:** Resistor temperatures are not validated yet. The heat source is the resistor's polysilicon body, on the oxide that insulates it from the substrate; the heads under the contacts are not part of it. For eight sizes of rhigh, rppd and rsil, the thermal resistance was 1.5 to 2.5 times the value of the PDK's resistor model, and most of the temperature rise is across that oxide. A narrow resistor needs a fine mesh at its heat source, about 0.06 µm; 0.125 µm is enough from about 2 µm width.
+**Resistors:** Resistor temperatures are not validated yet. The heat source is the resistor's polysilicon body, on the oxide that insulates it from the substrate. The polysilicon heads under the contacts are not heated, but they carry heat from the body into the contacts and Metal1: the export draws them on **HEAT_RESISTOR** as plain shapes, without the contacts' footprints (gds2palace 0.13.0 and newer; an older gds2palace stops with "Cont touches another conductor layer"). For a 0.5 × 0.5 µm rhigh the heads lower the thermal resistance by about 40 %, for 4 × 4 µm by about 8 %. Most of the temperature rise is across the oxide below the body, whose thermal conductivity is the least certain input. A narrow resistor needs a fine mesh at its heat source, about 0.06 µm; 0.125 µm is enough from about 2 µm width.
 
 The metal, contacts and vias of the devices stay in the model, since they carry heat away. So does the silicon
 around each npn emitter, which the PDK draws on Activ.mask (1/20), not on Activ: the export keeps datatype 20
@@ -1155,7 +1155,7 @@ It uses that copy only when the layout has none of its own.
 - The REF patch adds a few fF per transistor when the device is wired directly (chapter 13).
 - A split region's joined result has no coupling between the pieces other than through the lines that cross the
   cuts. Pieces are rectangles; a port wall covers the whole side of its piece, also beyond the cut.
-- Thermal: resistor temperatures are not validated yet: the thermal resistance was 1.5 to 2.5 times the value of the PDK's resistor model (chapter 14).
+- Thermal: resistor temperatures are not validated yet: from 0.5 × 0.5 µm to 4 × 4 µm, the thermal resistance was 0.75 to 1.9 times the value of the PDK's resistor model (chapter 14).
 - Thermal: instance names from LVS are tested with npn transistors and resistors. MOSFETs are supported, but not
   tested yet.
 - Thermal: the temperatures depend directly on the thermal conductivities in the stackup, above all of the

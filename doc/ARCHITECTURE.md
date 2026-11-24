@@ -237,7 +237,12 @@ resistor of its label value), 1 mH ties per net, 1 µF DC blocks when the `.sNp`
 - **In the z range of a stackup layer per device kind** (`thermal.heat_target`). IHP: `HEAT_TRANSISTOR` (the top
   40 nm of Activ) for transistors and `HEAT_RESISTOR` (a 0.16 µm polysilicon body on the field oxide) for
   resistors, the heat target layers of gds2palace's IHP stackups from 0.10.0. A heat source takes only the z range
-  and the material of its target, and nothing is drawn on these layers, so they are in no EM model. A stackup
+  and the material of its target. In EM models nothing is drawn on these layers. The thermal export draws one thing
+  on `HEAT_RESISTOR` (the technology's `UNHEATED_TARGET`): each resistor's poly outside its heated body
+  (`unheated_poly`: GatPoly minus PolyRes minus Cont), unheated, so the body reaches its contacts through poly and
+  not only through oxide. The contact footprints are cut out because the stackup's Cont starts at the Activ level
+  and passes through the poly's height; gds2palace 0.13.0 accepts the contact touching the poly at its walls in a
+  thermal model. A stackup
   without them: `HEAT_TARGET` (IHP: `Activ`, a slab on top of EPI) for every device, as before. The export stops
   if the stackup lacks `HEAT_TARGET` or it has no thickness.
 - **Marker layers from 201 upward**, skipping every layer the stackup uses (also derived and boundary layers),

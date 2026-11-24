@@ -44,6 +44,10 @@ HEAT_TARGET = "Activ"               # stackup layer whose z range holds the heat
 # a resistor's in its polysilicon body on the field oxide. A stackup without them: HEAT_TARGET for every device
 HEAT_TARGET_TRANSISTOR = "HEAT_TRANSISTOR"
 HEAT_TARGET_RESISTOR = "HEAT_RESISTOR"
+# a resistor's polysilicon outside its heated body (the heads under the contacts) conducts heat from the body into
+# its contacts but is not heated: the thermal export draws it on this stackup layer, as plain geometry (unheated_poly)
+UNHEATED_TARGET = HEAT_TARGET_RESISTOR
+CONT_LAYER = (6, 0)                 # Cont.drawing
 # datatypes the thermal export always keeps: the npn cells draw the silicon around each emitter on Activ.mask
 # (1/20), not Activ; without it the heat sources sit in oxide
 THERMAL_PURPOSES = (0, 20)
@@ -205,6 +209,20 @@ def heat_area(layout, device):
     if area.is_empty():
         return pya.Region(device.bbox), "bbox"
     return area.transformed(device.trans).merged(), how
+
+
+def unheated_poly(layout, device):
+    """Region (in the searched cell) of a resistor's polysilicon outside its heated body: the heads under the
+    contacts, GatPoly minus PolyRes, without the contacts' footprints - the stackup's Cont starts at the Activ level
+    and passes through the poly's height, so a contact gets a hole in the poly and touches it at its walls. It conducts
+    heat from the body into the contacts and Metal1; without it the body reaches them only through oxide. Empty for
+    other devices (a transistor's contacts land on Activ, which the stackup has)."""
+    if device.pcell not in RESISTOR_PCELLS:
+        return pya.Region()
+    c = layout.cell(device.cell_index)
+    poly = _device_shapes(layout, c, (POLY_LAYER, 0)) - _device_shapes(layout, c, POLYRES_LAYER)
+    poly -= _device_shapes(layout, c, CONT_LAYER)
+    return poly.transformed(device.trans).merged()
 
 
 def heat_targets(device):

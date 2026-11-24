@@ -5,6 +5,11 @@ heat source: its heat area (the technology's heat_area, for IHP the PDK's HeatTr
 layer of its own, in the z range of the stackup layer the technology gives for it (heat_target). One power per device: gds2palace
 spreads a source's power over all its polygons by volume, so a device's fingers share it by area.
 
+A resistor's polysilicon outside its heated body (the heads under the contacts, without the contacts' footprints) is
+drawn on the stackup's heat target layer for resistors as plain, unheated geometry (the technology's unheated_poly and
+UNHEATED_TARGET): it carries heat from the body into the contacts. Only with a stackup that has that layer; with an
+older one, whose resistors heat Activ, it is left out.
+
 Boundaries (constant temperatures) are chosen in setupThermal, since no default fits every assembly. The export
 writes the region outline on the first marker layer, as geometry a boundary can use, and a constant-temperature row on
 it without a target layer: a placeholder that setupThermal lists and refuses to mesh until the target is chosen.
@@ -34,7 +39,9 @@ MAP_NOTE = ("layer = marker layer of the heat source in the exported GDS and the
             "area_um2 = heat area; heat_area_from: shapes (the PDK's heat shapes), rule (none drawn, e.g. an older "
             "PDK: the same rectangles from the device's layers) or bbox (the device's bounding box: a larger area, a "
             "lower peak temperature); from_pdk = not bbox. "
-            "outline_layer: the region outline, for boundaries chosen in setupThermal.")
+            "outline_layer: the region outline, for boundaries chosen in setupThermal. "
+            "unheated_poly_um2 = a resistor's polysilicon outside its heated body (the heads, without the contacts), "
+            "drawn unheated on its target layer; 0 when not drawn (other devices, or a stackup without that layer).")
 
 
 def _stackup_numbers(stackup):
@@ -159,8 +166,9 @@ def heat_target(stackup, technology, device=None):
 
 
 class HeatSource:
-    def __init__(self, device, area, how, cut, target):
+    def __init__(self, device, area, how, cut, target, unheated=None):
         self.device = device
+        self.unheated = unheated if unheated is not None else pya.Region()   # unheated poly (see the module doc)
         self.target = target        # stackup layer whose z range and material the heat source takes
         self.area = area            # Region in dbu of the exported cell
         self.how = how              # the technology's heat_area: 'shapes', 'rule' or 'bbox' (the device's bounding box)
@@ -177,8 +185,10 @@ def heat_sources(layout, cell, stackup, technology, box=None):
     devices = layout_devices(layout, cell, stackup, technology)[0]
     clip = _clip(layout, box)
     sources = []
+    unheated_of = getattr(technology, "unheated_poly", None)
     for device in sorted(devices, key=lambda d: (d.bbox.left, d.bbox.bottom, d.pcell)):
         area, how = technology.heat_area(layout, device)
+        unheated = unheated_of(layout, device) if unheated_of else pya.Region()
         cut = False
         if clip is not None:
             inside = area & pya.Region(clip)
@@ -186,7 +196,8 @@ def heat_sources(layout, cell, stackup, technology, box=None):
                 continue
             cut = inside.area() < area.area()
             area = inside
-        sources.append(HeatSource(device, area, how, cut, None))     # target below
+            unheated &= pya.Region(clip)
+        sources.append(HeatSource(device, area, how, cut, None, unheated))     # target below
     missing = []
     for source in sources:
         try:
@@ -304,6 +315,14 @@ def export_thermal(layout, cell, stackup, gds_path, technology, box=None, lvsdb=
     extra = {(outline_layer, 0): pya.Region(clip if clip is not None else cell.bbox())}
     for layer, source in zip(source_layers, sources):
         extra[(layer, 0)] = source.area
+    unheated_name = getattr(technology, "UNHEATED_TARGET", None)
+    unheated_layer = stackup.layer(unheated_name) if unheated_name else None
+    unheated = pya.Region()
+    for source in sources:
+        if source.target == unheated_name:         # not with an older stackup, whose resistors heat Activ
+            unheated += source.unheated
+    if unheated_layer is not None and not unheated.is_empty():
+        extra[(unheated_layer.layer, 0)] = unheated.merged()
     for layer, region in markers.items():
         extra[(layer, 0)] = region
     ref = stackup.layer(REF_NAME)       # patches of an EM export's replaced devices: no part of a thermal model
@@ -321,6 +340,7 @@ def export_thermal(layout, cell, stackup, gds_path, technology, box=None, lvsdb=
                                                             s.device.bbox.right, s.device.bbox.top)],
              "area_um2": round(s.area.area() * um2, 6), "polygons": s.area.count(), "heat_area_from": s.how,
              "target_layer": s.target,
+             "unheated_poly_um2": round(s.unheated.area() * um2, 6) if s.target == unheated_name else 0.0,
              "from_pdk": s.from_pdk,
              "cut_by_region": s.cut, "instance": instances.get(s.device.id, (None, None))[0],
              "lvs_name": instances.get(s.device.id, (None, None))[1]}
