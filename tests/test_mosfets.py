@@ -33,6 +33,10 @@ for d in sorted(devices, key=lambda d: (d.trans.disp.y, d.trans.disp.x)):
         print("   gate trace:", {l: r.count() for l, r in d.gate_trace.items()})
 
 
+# every device here is replaced, the rfnmos too: IHP's PDK since October 2026 adds stray copies of its pins
+# (named by a property only, off its metal), which must not count as pins
+problems = {d.id: d.problems for d in devices if d.problems}
+print("ok   " if len(devices) == 6 and not problems else "FAIL ", f"6 devices without problems: {problems}")
 print("replace:", replace(NoUndo(), cell, st, devices))
 again = mark_replaced(ly, cell, find_devices(ly, cell, st)[0])
 ports = collect_ports(ly, cell, stackup=st)

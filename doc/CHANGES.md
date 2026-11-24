@@ -18,6 +18,24 @@ layout could not be exported at all. That layer is now only needed when the regi
 Sources says "no devices in the region" as usual, and the export writes the model, with your own heat source markers.
 A region with devices and no such layer is still refused, and the message says how many devices need it.
 
+**MOS capacitors and the varactor are replaced by ports.** moscap_n (G, SUB), moscap_p (G, NW) and the HV varactor
+SVaricap (G1, W, G2) are recognized and replaced like transistors, one port per terminal; Create Circuit puts in
+their PDK models (sg13_moscap_n/p from cornerMOSCAP.lib, sg13_hv_svaricap from cornerMOShv.lib, its substrate node
+to ground). Their capacitance is in the gate oxide, which the EM model does not have. Their pins are named only by a
+property in IHP's newer PDK versions; without it, the pins over the gate poly are the gates. No heat source in a
+thermal export. In Create Circuit, ngspice runs both models; VACASK and Xyce only partly (the PDK's models for them,
+see Limits in the user's guide). A static cell of them (no pcell context) is found but not replaced: no size.
+
+**Fix: rf MOSFETs with IHP's current PDK.** IHP-Open-PDK since October 2026 (main and dev, until IHP takes in
+the fix in its pycell4klayout-api of 19 November 2026) draws stray copies of the rf MOSFETs' pins, off the device,
+named only by a property. The device was refused ("pin ... has no name") and not replaced. Such copies no longer
+count as pins.
+
+**SG13CMOS5L with IHP's own PDK.** IHP-Open-PDK now has `ihp-sg13cmos5l`, with its own `SG13_dev` library for the
+KLayout technology `sg13cmos5l`. The plug-in is tested with it (`tests/test_cmos5l.py`): the same devices, terminals,
+ports and thermal export as with SG13G2. The tests' PDK checkout (`tests/setup_pdk.sh`) now has both processes, at
+IHP-Open-PDK main of 10 November 2026.
+
 ## 0.4.0 (16 November 2026)
 
 Works with setupEM 0.18.4 or newer for one more thing: after Open in setupEM, Ctrl+S in setupEM saves into the

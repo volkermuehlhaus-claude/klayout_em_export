@@ -6,7 +6,8 @@ without them.
 Environment:
   KLAYOUT_EM_EXPORT_TESTDATA  optional: a folder with Palace_testcases/klayout_export/, for those two layouts.
   GDS2PALACE                  the gds2palace_ihp_sg13g2 repo (stackups, examples). Unset: next to this repo.
-  IHP_PDK_ROOT                the folder that contains ihp-sg13g2. Unset: tests/pdk (made by tests/setup_pdk.sh).
+  IHP_PDK_ROOT                the folder that contains ihp-sg13g2 (and ihp-sg13cmos5l for test_cmos5l.py). Unset:
+                              tests/pdk (made by tests/setup_pdk.sh).
   OUT                         output folder. Unset: <temp>/klayout_em_export_tests/<test name>.
 
 A test imports it after putting its own folder on sys.path (KLayout's -r does not):

@@ -487,7 +487,9 @@ class EMPanel(pya.QWidget):
             self.devices_detail.setVisible(True)
             return
         devices, unknown = gui.find_layout_devices(layout, cell, stackup, clip)
-        transistors = [d for d in devices if not d.is_resistor]
+        capacitor_pcells = getattr(technology, "CAPACITOR_PCELLS", {})
+        capacitors = [d for d in devices if d.pcell in capacitor_pcells]
+        transistors = [d for d in devices if not d.is_resistor and d.pcell not in capacitor_pcells]
         resistors = [d for d in devices if d.is_resistor]
         self._fill_devices(devices, layout, technology)
         lines = [f"{count} x {qname}: not supported yet" for qname, count in unknown]
@@ -527,6 +529,9 @@ class EMPanel(pya.QWidget):
             parts.append(f"{len(transistors)} transistor(s), {sum(d.replaced for d in transistors)} replaced")
         if resistors:
             parts.append(f"{len(resistors)} resistor(s), {sum(d.replaced for d in resistors)} replaced")
+        if capacitors:
+            parts.append(f"{len(capacitors)} MOS capacitor(s)/varactor(s), {sum(d.replaced for d in capacitors)} "
+                         "replaced")
         if unknown:
             parts.append(f"{sum(c for _, c in unknown)} not supported")
         if touching:
@@ -541,7 +546,7 @@ class EMPanel(pya.QWidget):
         # end resistance, so its R is too low (Palace: rhigh and rppd by 9 to 13 %, see tests/resistor_palace)
         state = (OK if all(d.replaced for d in devices) and not unknown and not touching and not loose and not orphans
                  else WARN)
-        if clip is not None and parts and (transistors or resistors):
+        if clip is not None and parts and (transistors or resistors or capacitors):
             parts[0] = "in the region: " + parts[0]
         self.devices_step.set(state, ", ".join(parts))
 

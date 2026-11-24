@@ -31,8 +31,9 @@ summary; the arrow shows its details and buttons.
     vertically adjacent metals (from the stackup's z positions). Activ, Cont, resistors and the PEC sheets are left
     out, so a transistor or resistor is an open circuit here. Ground that is joined only outside the region shows
     up as separate pieces.
-- **Devices**: PDK transistors (npn13G2, npn13G2L, npn13G2V, nmos, pmos and their HV and rf variants) and resistors
-  (rsil, rppd, rhigh) found in the cell, and whether they are replaced by ports. Recognized as SG13_dev pcells, or
+- **Devices**: PDK transistors (npn13G2, npn13G2L, npn13G2V, nmos, pmos and their HV and rf variants), resistors
+  (rsil, rppd, rhigh), MOS capacitors (moscap_n, moscap_p) and the HV varactor (SVaricap) found in the cell, and
+  whether they are replaced by ports. Recognized as SG13_dev pcells, or
   as static device cells: exported from Cadence (`<device>_CDNS_<number>`) or saved without pcell context
   (`<device>$<number>`, e.g. after a fill tool). These have the same pins but no parameters: a resistor's value
   comes from its label, an npn's size from its `Ae=Nx*Ny*we*le` label, a MOSFET's w, l and ng from its drawn gates

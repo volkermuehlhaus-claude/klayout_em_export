@@ -1,4 +1,7 @@
-# The IHP PDK for the batch tests: the sg13g2 technology and the SG13_dev device library. PDK folder: testpaths.PDK_ROOT.
+# The IHP PDK for the batch tests: a process's KLayout technology and its SG13_dev device library. PDK folder:
+# testpaths.PDK_ROOT, which holds ihp-sg13g2 (and ihp-sg13cmos5l for test_cmos5l.py). One process per KLayout run: both
+# libraries are called SG13_dev and share the pycell4klayout-api modules.
+import importlib
 import os
 import sys
 
@@ -6,21 +9,21 @@ import pya
 
 from testpaths import PDK_ROOT
 
-PDK = os.path.join(PDK_ROOT, "ihp-sg13g2", "libs.tech", "klayout")
-PYDIR = os.path.join(PDK, "python")
-LYT = os.path.join(PDK, "tech", "sg13g2.lyt")
 
-
-def load_pdk():
-    """Register technology and the SG13_dev pcell library (Tcl callbacks bypassed)."""
-    if not os.path.isfile(LYT):
-        raise FileNotFoundError(f"No such file: {LYT} (run tests/setup_pdk.sh or set IHP_PDK_ROOT)")
-    if PYDIR not in sys.path:
-        sys.path.insert(0, PYDIR)
-        sys.path.insert(0, os.path.join(PYDIR, "pycell4klayout-api", "source", "python"))
-    if not pya.Technology.has_technology("sg13g2"):
-        pya.Technology.create_technology("sg13g2").load(LYT)
+def load_pdk(process="sg13g2"):
+    """Register the technology and the SG13_dev pcell library of process (sg13g2 or sg13cmos5l), Tcl callbacks
+    bypassed. FileNotFoundError without that PDK (run_all reports the test as skipped)."""
+    pdk = os.path.join(PDK_ROOT, f"ihp-{process}", "libs.tech", "klayout")
+    pydir = os.path.join(pdk, "python")
+    lyt = os.path.join(pdk, "tech", f"{process}.lyt")
+    if not os.path.isfile(lyt):
+        raise FileNotFoundError(f"No such file: {lyt} (run tests/setup_pdk.sh or set IHP_PDK_ROOT)")
+    if pydir not in sys.path:
+        sys.path.insert(0, pydir)
+        sys.path.insert(0, os.path.join(pydir, "pycell4klayout-api", "source", "python"))
+    if not pya.Technology.has_technology(process):
+        pya.Technology.create_technology(process).load(lyt)
     import cni.dlo
     cni.dlo.PCellWrapper.coerce_parameters = lambda self, layout, v: v
-    import sg13g2_pycell_lib  # noqa: F401  registers SG13_dev
-    return pya.Library.library_by_name("SG13_dev", "sg13g2")
+    importlib.import_module(f"{process}_pycell_lib")  # registers SG13_dev for this technology
+    return pya.Library.library_by_name("SG13_dev", process)

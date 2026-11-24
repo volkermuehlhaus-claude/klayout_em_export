@@ -92,8 +92,10 @@ gds2palace stackup.
 - **generic**: no devices; they stay in the EM model as drawn layout. Its ground check leaves out only the known
   technologies' device levels.
 - **IHP SG13G2 and SG13CMOS5L share `ihp_sg13`**: the same library `SG13_dev`, the same pcells (no npn in
-  SG13CMOS5L), the same layer numbers and model libraries (IHP-Open-PDK `dev` branch, November 2026). They differ
-  in the stackup only. A process with a library of its own (e.g. a future SG13Cu) is a technology of its own; it can
+  SG13CMOS5L), the same layer numbers and model libraries. IHP-Open-PDK's `ihp-sg13cmos5l` (main, November 2026)
+  registers its own `SG13_dev` for the KLayout technology `sg13cmos5l`, and its MOSFET, resistor and capacitor
+  pcells are symlinks to SG13G2's code; its layer table is a subset of SG13G2's with the same numbers
+  (`test_cmos5l.py` runs on it). They differ in the stackup only. A process with a library of its own (e.g. a future SG13Cu) is a technology of its own; it can
   import `ihp_sg13`'s terminal finders where its pcells draw the same pins.
 - **Port map**: the export writes `technology`; `tools/spice_wrapper.py` loads `tech/<technology>_circuit.py`. A
   port map without it is from an older export and counts as `ihp_sg13`.
@@ -452,7 +454,8 @@ with an empty KLayout home, the repo's `python/` on the path and an output folde
 a FAIL/ERROR line, a traceback or an error exit fails a test, a missing input file only skips it, and
 `test_circuit` runs only with PORTMAP, SNP and PYTHON (an EM result). About 3 minutes. The layouts are in `tests/data`; two large ones are not in the repo, and what
 needs them skips (`tests/testpaths.py`: `KLAYOUT_EM_EXPORT_TESTDATA`, `GDS2PALACE`, `IHP_PDK_ROOT`, `OUT`). The device
-tests need the PDK: `tests/setup_pdk.sh` makes a sparse checkout in `tests/pdk`, `tests/pdk_env.py` loads it.
+tests need the PDK: `tests/setup_pdk.sh` makes a sparse checkout of SG13G2 and SG13CMOS5L in `tests/pdk` (one
+commit for both, since SG13CMOS5L's pcells are SG13G2's code), `tests/pdk_env.py` loads one of them per KLayout run.
 
 | Area | Tests |
 | --- | --- |
@@ -465,7 +468,7 @@ tests need the PDK: `tests/setup_pdk.sh` makes a sparse checkout in `tests/pdk`,
 | Devices | `test_devices.py`, `test_mosfets.py`, `test_resistors.py`, `test_replaced_devices.py` (selection patches, ground voting, moved devices) (PDK needed) |
 | Thermal panel | `test_panel_thermal.py`: the Thermal tab on the cascode: EM steps hidden, the heat sources with the export's layers, names from the LVS database or else the last export, a missing LVS database, the placeholder boundary and a chosen one, the EM region box (PDK and `lvs_cascode` needed) |
 | GUI pieces in batch | `test_panel.py`, `test_reopen.py` (stand-in view, own settings file), `test_open_with.py` (setupEM / EMStudio command line, which stale scripts are reported), `test_backup.py` (backup of the original layout: when, and when not), `test_panel_idle.py` (no checks for a layout without EM setup, Run Checks, a closed panel) |
-| Technologies | `test_technology.py` (choice and generic fallback, SG13CMOS5L stackup, wrapper per port map technology) (PDK needed) |
+| Technologies | `test_technology.py` (choice and generic fallback, SG13CMOS5L stackup, wrapper per port map technology) (PDK needed); `test_cmos5l.py`: SG13CMOS5L with its own PDK library, the MOSFET layout of `test_mosfets.py` plus resistors and the MOS capacitors and varactor (terminals with and without the pins' name properties), replacement, EM and thermal export, the capacitors' circuit lines |
 | Create Circuit | `test_circuit.py` (needs a Python with snp2le), `tests/simulators/` (Docker, Linux) |
 | Physics checks | `tests/resistor_palace/` (Palace), `doc/test_cascode_wrapper`, `doc/test_cascode_epi_tie` |
 | Example exports | `run_cascode_export.py`, `run_cascode_epitie_export.py`, `run_mpa_core_export.py` (through `pipeline.export_em`, as the GUI) |

@@ -3,7 +3,8 @@
 The PDK devices stay as drawn, since their metal, contacts and vias conduct heat. Each device in the region gets one
 heat source: its heat area (the technology's heat_area, for IHP the PDK's HeatTrans/HeatRes shapes) on a marker
 layer of its own, in the z range of the stackup layer the technology gives for it (heat_target). One power per device: gds2palace
-spreads a source's power over all its polygons by volume, so a device's fingers share it by area.
+spreads a source's power over all its polygons by volume, so a device's fingers share it by area. Devices that
+dissipate no power (the technology's is_heat_source, for IHP the MOS capacitors and the varactor) get none.
 
 A resistor's polysilicon outside its heated body (the heads under the contacts, without the contacts' footprints) is
 drawn on the stackup's heat target layer for resistors as plain, unheated geometry (the technology's unheated_poly and
@@ -186,7 +187,10 @@ def heat_sources(layout, cell, stackup, technology, box=None):
     clip = _clip(layout, box)
     sources = []
     unheated_of = getattr(technology, "unheated_poly", None)
+    is_heat_source = getattr(technology, "is_heat_source", lambda device: True)
     for device in sorted(devices, key=lambda d: (d.bbox.left, d.bbox.bottom, d.pcell)):
+        if not is_heat_source(device):
+            continue            # e.g. a MOS capacitor: no power
         area, how = technology.heat_area(layout, device)
         unheated = unheated_of(layout, device) if unheated_of else pya.Region()
         cut = False

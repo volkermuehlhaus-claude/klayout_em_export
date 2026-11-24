@@ -293,10 +293,12 @@ twice. Create Circuit connects the PDK model at those ports again.
 
 ### Which devices are recognized?
 
-The SG13_dev PDK cells of IHP SG13G2 and SG13CMOS5L: npn13G2 and its variants, nmos and pmos (and the HV variants),
-and the resistors rsil, rppd and rhigh. Static device cells are recognized too: cells exported from Cadence
-(`<device>_CDNS_<n>`) and PDK cells saved without their pcell context (`<device>$<n>`, as fill tools write them).
-Capacitors and inductors are never replaced: they are metal, and the EM simulation computes them.
+The SG13_dev PDK cells of IHP SG13G2 and SG13CMOS5L: npn13G2 and its variants, nmos and pmos (and the HV and rf
+variants), the resistors rsil, rppd and rhigh, the MOS capacitors moscap_n and moscap_p and the HV varactor SVaricap.
+Static device cells are recognized too: cells exported from Cadence (`<device>_CDNS_<n>`) and PDK cells saved without
+their pcell context (`<device>$<n>`, as fill tools write them). MIM and MOM capacitors and inductors are never
+replaced: they are metal, and the EM simulation computes them. A MOS capacitor or varactor is replaced: its
+capacitance is in the gate oxide, which only the PDK model has.
 
 ### A device says "cannot be replaced: no parameters".
 

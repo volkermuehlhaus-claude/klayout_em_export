@@ -7,7 +7,9 @@ sg13cmos5l), which only matters for the stackup.
 Supported: SG13_dev pcells with named pins, i.e. pin shapes (datatype 2 on a metal layer) and a TEXT label with the
 terminal name inside each: npn13G2, npn13G2L, npn13G2V (C, B on Metal1; E on Metal2) and the rf MOSFETs (S, D, G,
 TIE); nmos/pmos (unnamed or no pins: terminals from the geometry); the resistors rsil, rppd, rhigh (two unnamed
-Metal1 pins). Static device cells are recognized by name: exported from Cadence (<pcell name>_CDNS_<number>), or
+Metal1 pins); the MOS capacitors moscap_n (G, SUB), moscap_p (G, NW) and the HV varactor SVaricap (G1, W, G2), whose
+pins are named only by a property (PIN_NAME_KEY, IHP-Open-PDK since October 2026), else told apart by the gate
+poly under them. Static device cells are recognized by name: exported from Cadence (<pcell name>_CDNS_<number>), or
 a pcell saved without its pcell context (<pcell name>$<number>, e.g. by a fill tool). They have no parameters: an
 npn's come from its 'Ae=Nx*Ny*we*le' label, a resistor's value from its label (see ihp_sg13_circuit).
 """
@@ -21,6 +23,10 @@ KLAYOUT_TECHNOLOGIES = ("sg13g2", "sg13cmos5l")
 DEVICE_PCELLS = {"npn13G2", "npn13G2L", "npn13G2V", "rfnmos", "rfpmos", "rfnmosHV", "rfpmosHV"}   # named pins
 MOSFET_PCELLS = {"nmos", "pmos", "nmosHV", "pmosHV"}    # unnamed (nmos) or no (pmos) pins: terminals from geometry
 RESISTOR_PCELLS = {"rsil", "rppd", "rhigh"}             # two unnamed Metal1 pins (PLUS, MINUS); replaced on request
+# MOS capacitors and the HV varactor: their terminals (the model's order); no heat source in a thermal export
+CAPACITOR_PCELLS = {"moscap_n": ("G", "SUB"), "moscap_p": ("G", "NW"), "SVaricap": ("G1", "W", "G2")}
+# the property with a pin's terminal name, which IHP's pycell4klayout-api writes on a second copy of each pin shape
+PIN_NAME_KEY = "PIN_INFO__TERM_NAME"
 PCELL_PARAMETERS = ("model", "Nx", "Ny", "le", "we", "w", "l", "ng", "b")   # kept for the circuit wrapper
 STATIC_SUFFIX = "_CDNS_"            # a device cell exported from Cadence: <pcell name>_CDNS_<number>, no pcell context
 AE_LABEL = re.compile(r"Ae=(\d+)\*(\d+)\*([0-9.]+)\*([0-9.]+)")     # npn label: Ae=Nx*Ny*we*le (we, le in um)
@@ -148,7 +154,12 @@ def _static_name(cell_name):
 
 
 def is_device(name):
-    return name in DEVICE_PCELLS or name in MOSFET_PCELLS or name in RESISTOR_PCELLS
+    return name in DEVICE_PCELLS or name in MOSFET_PCELLS or name in RESISTOR_PCELLS or name in CAPACITOR_PCELLS
+
+
+def is_heat_source(device):
+    """Whether the thermal export gives the device a heat source: not the MOS capacitors and the varactor."""
+    return device.pcell not in CAPACITOR_PCELLS
 
 
 def is_resistor(name):
@@ -157,7 +168,11 @@ def is_resistor(name):
 
 def terminals(layout, top, c, trans, device, ctx, m1_li, m1, stackup):
     """Fill device.terminals (and device.problems, device.gate_trace) for the device cell c at trans in top."""
-    if not device.params and device.pcell not in RESISTOR_PCELLS:
+    if not device.params and device.pcell in CAPACITOR_PCELLS:
+        # a static cell: its label names the device only, so Create Circuit would put in the model with default size
+        device.problems.append("no parameters: a static MOS capacitor or varactor cell (no pcell context) has no "
+                               "size for its PDK model")
+    elif not device.params and device.pcell not in RESISTOR_PCELLS:
         # a static cell without a parameter label: Create Circuit would put in the model with default size
         device.problems.append("no parameters: a static device cell (no pcell context) without a parameter label "
                                "(npn: 'Ae=Nx*Ny*we*le'; a MOSFET's size comes from its gates, all of one length)")
@@ -165,6 +180,8 @@ def terminals(layout, top, c, trans, device, ctx, m1_li, m1, stackup):
         _mosfet_terminals(layout, top, c, trans, device, m1_li, m1, stackup)
     elif device.pcell in RESISTOR_PCELLS:
         _resistor_terminals(layout, c, trans, device, ctx["pin_layers"], m1)
+    elif device.pcell in CAPACITOR_PCELLS:
+        _capacitor_terminals(layout, c, trans, device, ctx["pin_layers"], ctx["text_li"])
     else:
         _named_terminals(layout, c, trans, device, ctx["pin_layers"], ctx["text_li"])
 
@@ -262,37 +279,86 @@ def resistor_note(device):
             "end resistance)")
 
 
-def _named_terminals(layout, c, trans, device, pin_layers, text_li):
-    """Named pins: a pin shape on a metal pin layer, named by the TEXT label nearest to its center inside it."""
+def _pins(layout, c, pin_layers, text_li):
+    """The device's pins on the metal pin layers, in the cell's own coordinates: [(layer, box, name or None)]. The
+    name is the TEXT label nearest to the box center inside it (other texts, e.g. the device name, may fall into a
+    pin box too), else the pin's name property (PIN_NAME_KEY). A pin drawn more than once (the same box: IHP's
+    pcells draw each pin once plain and once with the name property; a cell copied onto itself) is one pin.
+    A pin that has only the name property, with no plain pin shape at its place, is left out when the cell has plain
+    pins: IHP-Open-PDK since October 2026, with pycell4klayout-api before its fix of 2026-11-19 ('Move pin boxes
+    with the rest of the cell'), leaves these copies where the pcell drew them before moving its geometry (the rf
+    MOSFETs), off the device's metal."""
     labels = []
     if text_li is not None:
-        for s in c.shapes(text_li).each():
-            if s.is_text():
-                labels.append((s.text.string, trans * pya.Point(s.text.x, s.text.y)))
-    pins = []
+        labels = [(s.text.string, pya.Point(s.text.x, s.text.y)) for s in c.shapes(text_li).each() if s.is_text()]
+    found = {}          # (layer, box corners): [box, plain shape seen, property name]
     for li in pin_layers:
+        layer = layout.get_info(li).layer
         for s in c.shapes(li).each():
-            if not s.is_text():
-                pins.append((layout.get_info(li).layer, s.bbox().transformed(trans)))
-    for layer, box in pins:
-        # the label nearest to the pin center (other texts, e.g. the device name, may fall into a pin box too)
+            if s.is_text():
+                continue
+            box = s.bbox()
+            entry = found.setdefault((layer, box.left, box.bottom, box.right, box.top), [box, False, None])
+            name = s.property(PIN_NAME_KEY) if s.prop_id else None
+            if name:
+                entry[2] = str(name)
+            else:
+                entry[1] = True
+    any_plain = any(plain for _, plain, _ in found.values())
+    pins = []
+    for (layer, *_), (box, plain, property_name) in found.items():
+        if any_plain and not plain:
+            continue
         names = [n for n, p in sorted(labels, key=lambda item: item[1].distance(box.center())) if box.contains(p)]
-        if not names:
+        pins.append((layer, box, names[0] if names else property_name))
+    return pins
+
+
+def _named_terminals(layout, c, trans, device, pin_layers, text_li):
+    """Named pins: a pin shape on a metal pin layer with its name (_pins)."""
+    for layer, box, name in _pins(layout, c, pin_layers, text_li):
+        box = box.transformed(trans)
+        if not name:
             device.problems.append(f"pin on layer {layer} at {box.to_dtype(layout.dbu)} has no name")
             continue
-        device.terminals[names[0]] = (layer, [box])
+        device.terminals[name] = (layer, [box])
     if len(device.terminals) < 2:
         device.problems.append("fewer than two named pins")
+
+
+def _capacitor_terminals(layout, c, trans, device, pin_layers, text_li):
+    """moscap_n (G, SUB), moscap_p (G, NW), SVaricap (G1, W, G2): one Metal1 pin per terminal, named by the pin's name
+    property. Without names (IHP-Open-PDK before October 2026): the pins over the gate poly are the
+    gates, the other one is the well or substrate tie; SVaricap's G1 is the gate pin with the lower coordinate across
+    the gates in the cell's own coordinates (the pcell draws G1 below the gate, G2 above it)."""
+    expected = CAPACITOR_PCELLS[device.pcell]
+    pins = _pins(layout, c, pin_layers, text_li)
+    named = {name: (layer, box) for layer, box, name in pins if name in expected}
+    if len(named) != len(expected):
+        poly = _device_shapes(layout, c, (POLY_LAYER, 0))
+        gates = [(layer, box) for layer, box, _ in pins if not poly.interacting(pya.Region(box)).is_empty()]
+        others = [(layer, box) for layer, box, _ in pins if poly.interacting(pya.Region(box)).is_empty()]
+        if len(pins) != len(expected) or len(gates) != len(expected) - 1 or len(others) != 1:
+            device.problems.append(f"{len(pins)} pins, {len(gates)} of them on the gate poly: expected "
+                                   f"{len(expected)} pins ({', '.join(expected)})")
+            return
+        if len(gates) == 2:
+            (a_layer, a), (b_layer, b) = gates
+            along_y = abs(a.center().y - b.center().y) >= abs(a.center().x - b.center().x)
+            gates.sort(key=lambda pin: pin[1].center().y if along_y else pin[1].center().x)
+            named = {"G1": gates[0], "G2": gates[1], "W": others[0]}
+        else:
+            named = {expected[0]: gates[0], expected[1]: others[0]}
+    for name in expected:
+        layer, box = named[name]
+        device.terminals[name] = (layer, [box.transformed(trans)])
 
 
 def _resistor_terminals(layout, c, trans, device, pin_layers, m1):
     """rsil, rppd, rhigh: two Metal1 pins without names, one per contact head. PLUS is the one with the lower
     coordinate along the resistor in the cell's own coordinates (the pcell draws PLUS at the bottom contact area).
     A resistor of several segments has more pins and is not replaced."""
-    # a pin drawn twice (identical shapes, e.g. a cell copied onto itself) is one pin
-    pins = list({(b.left, b.bottom, b.right, b.top): b for b in (
-        s.bbox() for li in pin_layers if layout.get_info(li).layer == m1 for s in c.shapes(li).each()
-        if not s.is_text())}.values())
+    pins = [box for layer, box, _ in _pins(layout, c, [li for li in pin_layers if layout.get_info(li).layer == m1], None)]
     if len(pins) != 2:
         device.problems.append(f"{len(pins)} Metal1 pins, expected 2 (a resistor of several segments?)")
         return

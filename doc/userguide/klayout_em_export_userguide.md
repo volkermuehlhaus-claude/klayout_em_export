@@ -535,6 +535,11 @@ Each device has its own REF patch: the devices' ports must not be connected to e
 Resistors (rsil, rppd, rhigh) are replaced the same way, with two ports each, and the PDK resistor model takes
 their place in the circuit.
 
+MOS capacitors and the HV varactor are replaced like transistors: moscap_n (G, SUB) and moscap_p (G, NW) with two
+ports, SVaricap (G1, W, G2) with three. Their capacitance sits in the thin gate oxide, which the EM model does not
+have, so only the PDK model can give it. In the circuit, the varactor's substrate node goes to ground. They get no
+heat source in a thermal export.
+
 ### Why resistors should be replaced too
 
 The PDK does not compute a resistor's value from its drawn shape alone. Its pcells and SPICE models add two
@@ -1142,8 +1147,8 @@ It uses that copy only when the layout has none of its own.
 
 ### Limits
 
-- Only the IHP SG13G2 PDK cells are recognized as devices (npn13G2 family, nmos/pmos and their HV and RF variants,
-  rsil, rppd, rhigh).
+- Only the IHP SG13G2 and SG13CMOS5L PDK cells are recognized as devices (npn13G2 family, nmos/pmos and their HV
+  and RF variants, rsil, rppd, rhigh, moscap_n, moscap_p, SVaricap).
 - The 1 mH ties are ideal: the wiring's DC resistance is not in the bias (in the cascode it would lower Icc by about
   6 %).
 - Resistors from static cells (no PDK parameters) become ideal resistors of their label value: no temperature
@@ -1153,6 +1158,10 @@ It uses that copy only when the layout has none of its own.
   width offset and contact end resistance. rhigh and rppd are about 10 % to 13 % low, rsil up to about 2 %
   (chapter 9). A resistor of several segments cannot be replaced yet.
 - The REF patch adds a few fF per transistor when the device is wired directly (chapter 13).
+- MOS capacitors and the varactor in Create Circuit (checked in the IIC-OSIC-TOOLS image of November 2026): ngspice
+  runs both; VACASK runs moscap_n/p, but the PDK's VACASK model of SVaricap does not load; Xyce runs neither (the
+  PDK's Xyce moscap model stops Xyce 7.10, and its Xyce models have no SVaricap). A static MOS capacitor or varactor
+  cell (no pcell context) is not replaced: its label gives no size.
 - A split region's joined result has no coupling between the pieces other than through the lines that cross the
   cuts. Pieces are rectangles; a port wall covers the whole side of its piece, also beyond the cut.
 - Thermal: resistor temperatures are not validated yet: from 0.5 × 0.5 µm to 4 × 4 µm, the thermal resistance was 0.75 to 1.9 times the value of the PDK's resistor model (chapter 14).

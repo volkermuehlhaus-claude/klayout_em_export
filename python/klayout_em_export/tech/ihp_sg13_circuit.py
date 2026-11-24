@@ -42,10 +42,16 @@ DEVICES = {
     "nmos": (None, "mos"), "pmos": (None, "mos"), "nmosHV": (None, "moshv"), "pmosHV": (None, "moshv"),
     "rfnmos": (None, "mos"), "rfpmos": (None, "mos"), "rfnmosHV": (None, "moshv"), "rfpmosHV": (None, "moshv"),
     "rsil": ("rsil", "res"), "rppd": ("rppd", "res"), "rhigh": ("rhigh", "res"),
+    # the varactor's model is in the HV MOS library (cornerMOShv.lib, section mos_tt)
+    "moscap_n": ("sg13_moscap_n", "moscap"), "moscap_p": ("sg13_moscap_p", "moscap"),
+    "SVaricap": ("sg13_hv_svaricap", "moshv"),
 }
 LIBRARIES = {"hbt": ("cornerHBT.lib", "hbt_typ"), "mos": ("cornerMOSlv.lib", "mos_tt"),
-             "moshv": ("cornerMOShv.lib", "mos_tt"), "res": ("cornerRES.lib", "res_typ")}
-PARAMS = {"hbt": ("Nx", "Ny", "le", "we"), "mos": ("w", "l", "ng"), "moshv": ("w", "l", "ng"), "res": ("w", "l", "b")}
+             "moshv": ("cornerMOShv.lib", "mos_tt"), "res": ("cornerRES.lib", "res_typ"),
+             "moscap": ("cornerMOSCAP.lib", "moscap_tt")}
+PARAMS = {"hbt": ("Nx", "Ny", "le", "we"), "mos": ("w", "l", "ng"), "moshv": ("w", "l", "ng"), "res": ("w", "l", "b"),
+          "moscap": ("w", "l")}
+PCELL_PARAMS = {"SVaricap": ("w", "l", "Nx")}      # a device whose parameters differ from its library kind's
 SPECTRE_NOTE = "PDK model libraries: include those of your IHP PDK installation, for example"
 VACASK_HEADER = ("needs the IHP PDK converted for VACASK and its .vacaskrc.toml (next to the testbench or in your home)",
                  'include "sg13g2_vacask_common.lib"')
@@ -58,7 +64,7 @@ def pcell_of(device_id):
 
 def lib_path(pdk, simulator, lib):
     if not pdk:
-        return f"<IHP-Open-PDK>/ihp-sg13g2/libs.tech/{simulator}/models/{lib}"
+        return f"<IHP-Open-PDK>/<ihp-sg13g2 or ihp-sg13cmos5l>/libs.tech/{simulator}/models/{lib}"
     return os.path.join(pdk, "libs.tech", simulator, "models", lib).replace("\\", "/")
 
 
@@ -84,10 +90,15 @@ def instantiate(k, device_id, pcell, params, term):
         return ([("comment", f"  static cell without parameters: ideal resistor from its label '{params.get('label')}'"),
                  ("R", f"R{k}", term["PLUS"], term["MINUS"], value)],
                 [f"{device_id}: ideal resistor {value} (from its label; no temperature, no parasitics)"], None)
-    values = {p: params[p] for p in PARAMS[kind] if p in params and params[p] not in ("", "None")}
+    values = {p: params[p] for p in PCELL_PARAMS.get(pcell, PARAMS[kind]) if p in params and params[p] not in ("", "None")}
     notes = []
     if kind == "hbt":
         item = ("device", f"X{k}", subckt, [term["C"], term["B"], term["E"], "0"], values)
+    elif kind == "moscap":
+        item = ("device", f"X{k}", params.get("model") or subckt, [term["G"], term.get("SUB") or term["NW"]], values)
+    elif pcell == "SVaricap":
+        item = ("device", f"X{k}", params.get("model") or subckt, [term["G1"], term["W"], term["G2"], "0"], values)
+        notes.append(f"{device_id}: substrate (bn) to ground")
     elif kind in ("mos", "moshv"):
         model = params.get("model") or ("sg13_lv_pmos" if "p" in pcell else "sg13_lv_nmos")
         bulk = term.get("TIE") or (term["S"] if "pmos" in pcell else "0")
