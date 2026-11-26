@@ -36,7 +36,10 @@ gds2palace or gds2openEMS stackup; device recognition needs a [technology module
 
 1. [KLayout](https://www.klayout.de) 0.29 or newer (tested: 0.29.4 on Windows, 0.30.12 on Linux) with the
    [IHP SG13G2 PDK](https://github.com/IHP-GmbH/IHP-Open-PDK).
-2. `pip install setupEM snp2le` in a Python environment. Palace runs on Linux, see gds2palace.
+2. setupEM with gds2palace and the Palace solver: the [install script of gds2palace](https://github.com/VolkerMuehlhaus/gds2palace_ihp_sg13g2/tree/main/scripts)
+   (Linux, or Windows with Palace in WSL) sets up all three. Then `pip install snp2le` in that Python environment,
+   for Create Circuit. By hand instead: `pip install setupEM snp2le`, and Palace on Linux as described for
+   gds2palace.
 3. The plug-in, from KLayout's package manager: **Tools > Manage Packages**, tab **Install New Packages**, select
    **klayout_em_export**, mark it for installation and press **Apply**; restart KLayout. Updates come in the tab
    **Update Packages**.
@@ -82,6 +85,8 @@ Open the cascode `examples/cascode/cascode.gds` and go through the panel from to
 - [Cascode test report](doc/test_cascode_wrapper/README.md): from layout to circuit, with results.
 - [Architecture](doc/ARCHITECTURE.md): modules, data formats and design decisions.
 - [AGENTS.md](AGENTS.md): working rules, tests and KLayout pitfalls for development.
+- [Which tool for what](https://github.com/VolkerMuehlhaus/gds2palace_ihp_sg13g2/blob/main/doc/toolchain_overview.md):
+  the other tools around this plug-in, from setupEM and the solver workflows to result plots and circuit models.
 
 ## Known limits
 
