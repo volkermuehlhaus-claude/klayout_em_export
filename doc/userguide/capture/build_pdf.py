@@ -13,7 +13,7 @@ from PIL import Image
 GUIDE = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 BUILDER = os.path.normpath(os.path.join(GUIDE, "..", "pdf_build", "build_userguide_pdf.py"))
 FULL_SIZE = ("01_flow", "02_main_window_start", "03_layout", "07_pad_port_top", "08_ground_in_layout", "09_region_",
-             "09_boundary_port", "10_q1_", "10_resistors_after", "14_layout_ports")
+             "09_boundary_port", "10_q1_", "10_resistors_after", "13_xschem_testbench", "14_layout_ports")
 PDF_SCALE = 0.7
 TEXT_WIDTH_IN = (210 - 2 * 22) / 25.4           # A4 minus the template's 22 mm side margins
 JPEG_ABOVE = 150_000                            # the builder embeds larger opaque images as JPEG, without their dpi

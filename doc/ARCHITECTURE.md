@@ -193,7 +193,8 @@ settings file and opening setupEM / EMStudio, and `cli.py` the request handling.
   everything else (frequencies, mesh, ...) is kept.
 - **`<name>_portmap.json`**: per exported port: `port` (number in the `.simcfg` and `.snp`), `layer`,
   `layout_port`, `layout_layer`, `in_simcfg`, `settings`, and when known `direction`, `device`, `terminal`, `net`,
-  `ground_net`, `signal_layer`. Plus `devices`: pcell and parameters of each replaced device. This file is the
+  `ground_net`, `signal_layer`, `net_name` (the net's label in the layout, `connectivity.net_labels` and
+  `port_net_names`; Create Circuit's pin names). Plus `devices`: pcell and parameters of each replaced device. This file is the
   only link between the `.snp` and the devices for Create Circuit.
 
 ## 6. From EM result to circuit

@@ -77,9 +77,24 @@
   )
 })
 
+// a paragraph that ends with a colon introduces what follows (a list, a figure, a code block): it stays on the
+// same page as the start of that
+#let ends-with-colon(c) = {
+  if c.has("text") { c.text.trim().ends-with(":") }
+  else if c.has("children") {
+    let kids = c.children.filter(k => k != [ ] and k.func() != parbreak)
+    kids.len() > 0 and ends-with-colon(kids.last())
+  }
+  else if c.has("body") { ends-with-colon(c.body) }
+  else { false }
+}
+#show par: it => if ends-with-colon(it.body) { context block(sticky: true, spacing: par.spacing, it) } else { it }
+
 // figures and tables
 #set figure(gap: 0.7em)
 #show figure: set block(breakable: false, above: 1.2em, below: 1.4em)
+// a table may continue on the next page: one longer than the page would run over its end
+#show figure.where(kind: table): set block(breakable: true)
 #show figure.caption: it => text(9pt, fill: muted)[
   #text(weight: "semibold")[#it.supplement #context it.counter.display(it.numbering)]: #it.body
 ]
@@ -114,7 +129,8 @@
 
 // ---------- table of contents ----------
 #page(header: none)[
-  #show outline.entry.where(level: 1): it => { v(0.5em); strong(it) }
+  #set par(leading: 0.5em)
+  #show outline.entry.where(level: 1): it => { v(0.3em); strong(it) }
   #outline(title: text(fill: accent)[Contents], depth: 2, indent: auto)
 ]
 

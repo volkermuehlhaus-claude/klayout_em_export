@@ -61,6 +61,24 @@ testbench, here for ngspice with snp2le's equivalent circuit of the EM model:
 
 ![Done: the circuit and its equivalent circuit](../doc/userguide/images/13_circuit_done.png)
 
+The circuit's pins are named after the nets' labels in the layout: `Cas_out`, `Cas_in` and `Cas_Bias`.
+
+### The cascode in xschem
+
+`cascode/xschem/` holds what Create Circuit writes for ngspice from these two files, and a finished testbench:
+
+| File | Content |
+| --- | --- |
+| `cascode_em_dc_ngspice.cir`, `cascode_em_dc_ngspice_le.cir` | the circuit and the EM model's equivalent circuit (snp2le) |
+| `cascode_em_dc_ngspice.sym` | the xschem symbol of the circuit |
+| `cascode_em_dc_ngspice_tb.sch` | the starter testbench, as Create Circuit writes it |
+| `tb_cascode.sch` | the finished testbench: bias tees, two 50 Ohm ports, S-parameter analysis, result graphs |
+
+Open `tb_cascode.sch` in xschem with the IHP SG13G2 settings (in the IIC-OSIC-TOOLS image: `xschem tb_cascode.sch`
+in that folder), press **Netlist** and **Simulate**, then "load the results":
+
+![The cascode testbench in xschem with its results](../doc/userguide/images/13_xschem_testbench.png)
+
 The two files fit only an export whose ports are numbered as in the guide; after other changes, use your own export
 and result. With the bias of the guide (Vcc = 2.5 V, Vb = 0.9 V, Cas_Bias = 1.9 V), the circuit gives this gain and
 match (chapter 13 of the guide):

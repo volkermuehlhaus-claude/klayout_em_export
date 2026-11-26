@@ -2,7 +2,7 @@
 
 Volker Mühlhaus, volker@muehlhaus.com
 ---
-Document version: 2026-11-24, plug-in version 0.5.0
+Document version: 2026-11-26, plug-in version 0.5.0
 
 ## Contents
 [What the plug-in does](#what-the-plug-in-does)
@@ -779,7 +779,11 @@ next release.
 
 ### What is in the circuit
 
-The circuit is one subcircuit. Its pins are the ports that belong to no device: the pads and the bias input. Inside:
+The circuit is one subcircuit. Its pins are the ports that belong to no device: the pads and the bias input. Each
+pin has the name of its net in your layout, here `Cas_out`, `Cas_in` and `Cas_Bias`: the plug-in reads the text
+labels that you placed on the metal (SG13G2: a metal's text or pin layer, e.g. TopMetal2.text) when it exports. A
+pin whose net has no label is called `port<N>`, with N the port number of the export. The first lines of the
+circuit file list each pin with its port number. Inside:
 
 - **the EM model**, with one pin per port;
 - **the PDK transistor models**, each terminal connected directly to its port's pin (npn13G2 with Nx, le, we from
@@ -804,21 +808,26 @@ ngspice example (`--pdk` given, so the model library lines are active):
 
 ```spice
 .include cascode_em_dc_ngspice.cir
+* the circuit: .subckt cascode_em_dc_ngspice Cas_out Cas_in Cas_Bias
 Vcc  vcc 0 2.5
-Lc   vcc port1 1u          ; bias tee at the output
-Cout port1 out 10p
+Lc   vcc Cas_out 1u        ; bias tee at the output
+Cout Cas_out out 10p
 Rl   out 0 50
 Vb   vb 0 0.9
-Lb   vb port2 1u           ; bias tee at the input
+Lb   vb Cas_in 1u          ; bias tee at the input
 Vin  src 0 dc 0 ac 1
 Rs   src in 50
-Cin  in port2 10p
-Vbias port15 0 1.9         ; Cas_Bias
-X1 port1 port2 port15 cascode_em_dc_ngspice
+Cin  in Cas_in 10p
+Vbias Cas_Bias 0 1.9
+X1 Cas_out Cas_in Cas_Bias cascode_em_dc_ngspice
 ```
+
+The pins are connected by their position, in the order of their port numbers, so a testbench written for an
+earlier export, with `port1 port2 port15`, works unchanged.
 
 - **VACASK:** include the `.inc` file. VACASK finds the PDK's models through the PDK's `.vacaskrc.toml`: copy it next
   to your testbench.
+
 - **Spectre:** the PDK include lines are written as comments: replace them with the includes of your SG13G2 PDK
   installation.
 
@@ -828,6 +837,39 @@ X1 port1 port2 port15 cascode_em_dc_ngspice
   (chapter 11). The circuit still works, the DC blocks keep the EM model out of the bias.
 - "the port map has no signal layers (older export)": export again with the current plug-in.
 - snp2le not found: choose the Python of the environment where snp2le is installed.
+
+### Using it in xschem
+
+For ngspice and Xyce, Create Circuit also writes two files for [xschem](https://xschem.sourceforge.io), next to the
+circuit:
+
+- `<name>.sym`: a symbol of the circuit, with one pin per net name. It carries the include of the circuit file, so
+  you only place the symbol: there is nothing to add to the netlist by hand.
+- `<name>_tb.sch`: a starter testbench with the symbol, a label at each pin, the PDK's model library and an
+  operating point analysis. Open it, add your sources and loads, and extend the commands. It is written once: when
+  you create the circuit again, your testbench is kept and only the symbol and the circuit are replaced.
+
+![The starter testbench in xschem: the circuit as a symbol with its pin names, the model library and the commands](images/13_xschem_starter.png)
+
+Start xschem in the folder of these files, with the PDK's settings, as for any IHP SG13G2 schematic (in the
+IIC-OSIC-TOOLS image: `xschem <name>_tb.sch`). **Netlist** and **Simulate** in the top right corner run ngspice.
+
+The cascode with bias tees and two 50 Ohm ports, as a finished example (`examples/cascode/xschem/tb_cascode.sch`):
+ngspice's S-parameter analysis (`sp`) gives S11, S21 and S22 directly, and "load the results" shows them in the
+graphs.
+
+![The cascode testbench in xschem with its results: S21, S11 and S22 from 1 to 200 GHz](images/13_xschem_testbench.png)
+
+ngspice prints the supply current and the gain:
+
+```
+-i(vcc) -i(vbias) = 1.146351e-02
+s21_10g             =  2.16948e+01
+s21_100g            =  7.91200e+00
+```
+
+The model library lines come from the testbench here (`.lib $::SG13G2_MODELS/...`). If you gave Create Circuit the
+PDK folder, the circuit file has them too: remove them in one of the two places.
 
 ## The cascode example: results
 

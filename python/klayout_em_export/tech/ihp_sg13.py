@@ -35,6 +35,7 @@ CONT_NAME = "Cont"
 LIBRARY = "SG13_dev"
 PIN_DATATYPE = 2                    # SG13G2 pin purpose, e.g. Metal1.pin = 8/2
 TEXT_LAYER = (63, 0)                # SG13G2 TEXT.drawing: the pin names
+NET_LABEL_DATATYPES = (25, 2)       # a net label is a text on a metal's text or pin purpose, e.g. TopMetal2.text = 134/25
 DEVICE_LEVEL = {"Activ"}            # diffusion, below Metal1: not traced as wiring (see connectivity.py)
 # where the PDK's pcells mark the heat a device dissipates (sg13g2_pycell_lib/ihp/thermal.py): rectangles over each
 # MOS gate finger and npn emitter (HeatTrans) and over each resistor body stripe (HeatRes)

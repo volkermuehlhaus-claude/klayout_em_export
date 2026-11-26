@@ -252,11 +252,12 @@ def device_of(port):
     return None
 
 
-def port_map(ports, numbering, devices=(), nets=None, directions=None, technology=None):
+def port_map(ports, numbering, devices=(), nets=None, directions=None, technology=None, net_names=None):
     """The port map file's content: per exported port its layout number and layer, and whether it is simulated;
     with devices (devices.Device), also the replaced devices' pcell and parameters, with nets
     (connectivity.port_nets) the net and layer of each port's signal end, for a circuit wrapper, and with
-    directions (export_directions) the direction exported for the ports it covers."""
+    directions (export_directions) the direction exported for the ports it covers, and with net_names
+    (connectivity.port_net_names) the label of each port's net in the layout, which Create Circuit uses as pin name."""
     rows = []
     numbers = export_port_numbers(numbering)
     for layer, new_layer in sorted(numbering.items(), key=lambda item: item[1]):
@@ -270,12 +271,14 @@ def port_map(ports, numbering, devices=(), nets=None, directions=None, technolog
             row["device"], row["terminal"] = device
         if nets and layer in nets:
             row["net"], row["ground_net"], row["signal_layer"] = nets[layer]
+        if net_names and layer in net_names:
+            row["net_name"] = net_names[layer]
         rows.append(row)
     out = {"note": "port = number in the .simcfg and .snp, layer = its layer in the exported GDS; layout_port = "
                     "number in the layout (layer - 200). Ports not in the .simcfg are exported as shapes only. "
                     "device/terminal: the port replaces that terminal of a PDK device (to be connected to the "
                     "device model). direction: as exported, chosen so that every via port has its signal metal "
-                    "(signal_layer) on the same end.",
+                    "(signal_layer) on the same end. net_name: the label of the port's net in the layout.",
             "ports": rows,
             "devices": {d.id: {"pcell": d.pcell, "params": {k: str(v) for k, v in d.params.items()}}
                         for d in devices if d.replaced}}

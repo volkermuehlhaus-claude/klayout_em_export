@@ -2,6 +2,18 @@
 
 ## 0.5.0 (24 November 2026)
 
+**Create Circuit: symbol and testbench for xschem.** For ngspice and Xyce, Create Circuit now also writes an
+xschem symbol of the circuit and a starter testbench with the PDK's model library. Open the testbench in xschem,
+add sources and loads, and simulate: the symbol brings the circuit file along. `examples/cascode/xschem` has a
+finished testbench of the cascode with bias tees, S-parameter analysis and result graphs (user's guide, chapter
+"Back to the circuit").
+
+**Create Circuit: pins named after your nets.** The circuit's pins now have the names of their nets in the layout,
+e.g. `Cas_in`, `Cas_out` and `Cas_Bias` for the cascode, instead of `port1`, `port2` and `port15`. The export reads
+the text labels on the metals (SG13G2: a metal's text or pin layer) and writes them into the port map. A pin whose
+net has no label is still `port<N>`. The order of the pins is the same as before, so existing testbenches keep
+working. Export again to get the names: a port map of an earlier export has none.
+
 Works with gds2palace 0.13.0 or newer for the resistor heads below; an older gds2palace stops on them with "Cont
 touches another conductor layer". Without `HEAT_RESISTOR` in the stackup, nothing changes.
 

@@ -1,0 +1,25 @@
+v {xschem version=3.4.5 file_version=1.2}
+G {}
+K {type=subcircuit
+format="@name @pinlist @symname"
+template="name=x1"
+spice_sym_def="tcleval(.include [file join [file dirname [abs_sym_path @symname\\.sym]] cascode_em_dc_ngspice.cir])"
+}
+V {}
+S {}
+E {}
+L 4 -90 -30 90 -30 {}
+L 4 -90 30 90 30 {}
+L 4 -90 -30 -90 30 {}
+L 4 90 -30 90 30 {}
+L 4 110 -10 90 -10 {}
+B 5 107.5 -12.5 112.5 -7.5 {name=Cas_out dir=inout}
+T {Cas_out} 85 -14 0 1 0.2 0.2 {}
+L 4 -110 -10 -90 -10 {}
+B 5 -112.5 -12.5 -107.5 -7.5 {name=Cas_in dir=inout}
+T {Cas_in} -85 -14 0 0 0.2 0.2 {}
+L 4 -110 10 -90 10 {}
+B 5 -112.5 7.5 -107.5 12.5 {name=Cas_Bias dir=inout}
+T {Cas_Bias} -85 6 0 0 0.2 0.2 {}
+T {@symname} -90 -60 0 0 0.25 0.25 {}
+T {@name} -90 35 0 0 0.2 0.2 {}

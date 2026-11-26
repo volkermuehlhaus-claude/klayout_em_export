@@ -1,5 +1,5 @@
 {
-  "note": "port = number in the .simcfg and .snp, layer = its layer in the exported GDS; layout_port = number in the layout (layer - 200). Ports not in the .simcfg are exported as shapes only. device/terminal: the port replaces that terminal of a PDK device (to be connected to the device model). direction: as exported, chosen so that every via port has its signal metal (signal_layer) on the same end.",
+  "note": "port = number in the .simcfg and .snp, layer = its layer in the exported GDS; layout_port = number in the layout (layer - 200). Ports not in the .simcfg are exported as shapes only. device/terminal: the port replaces that terminal of a PDK device (to be connected to the device model). direction: as exported, chosen so that every via port has its signal metal (signal_layer) on the same end. net_name: the label of the port's net in the layout.",
   "ports": [
     {
       "port": 1,
@@ -11,7 +11,8 @@
       "direction": "Z",
       "net": 0,
       "ground_net": false,
-      "signal_layer": "TopMetal2"
+      "signal_layer": "TopMetal2",
+      "net_name": "Cas_out"
     },
     {
       "port": 2,
@@ -23,7 +24,8 @@
       "direction": "Z",
       "net": 2,
       "ground_net": false,
-      "signal_layer": "TopMetal2"
+      "signal_layer": "TopMetal2",
+      "net_name": "Cas_in"
     },
     {
       "port": 3,
@@ -37,7 +39,8 @@
       "terminal": "B",
       "net": 2,
       "ground_net": false,
-      "signal_layer": "Metal1"
+      "signal_layer": "Metal1",
+      "net_name": "Cas_in"
     },
     {
       "port": 4,
@@ -79,7 +82,8 @@
       "terminal": "MINUS",
       "net": 4,
       "ground_net": false,
-      "signal_layer": "Metal1"
+      "signal_layer": "Metal1",
+      "net_name": "Cas_Bias"
     },
     {
       "port": 7,
@@ -149,7 +153,8 @@
       "terminal": "C",
       "net": 0,
       "ground_net": false,
-      "signal_layer": "Metal1"
+      "signal_layer": "Metal1",
+      "net_name": "Cas_out"
     },
     {
       "port": 12,
@@ -203,7 +208,8 @@
       "direction": "-Z",
       "net": 4,
       "ground_net": false,
-      "signal_layer": "Metal2"
+      "signal_layer": "Metal2",
+      "net_name": "Cas_Bias"
     }
   ],
   "devices": {

@@ -3,7 +3,7 @@ replaced them, as a subcircuit for ngspice, VACASK, Xyce or Spectre.
 
     python tools/spice_wrapper.py <export>_portmap.json <model>.sNp [-o <file>]
         [--simulator ngspice|vacask|xyce|spectre] [--em fit|snp] [--pdk <PDK folder, e.g. IHP-Open-PDK/ihp-sg13g2>]
-        [--no-thermal-noise]
+        [--no-thermal-noise] [--numbered-pins] [--no-xschem]
 
 The EM model goes in either way:
   fit   a lumped-element equivalent circuit made by snp2le (universal mode: vector fitted, passive), written next to
@@ -18,7 +18,9 @@ Use the gds2palace result with its DC point (<model>_dc.sNp, from a sweep starte
 two low frequencies, normally 10 MHz and 20 MHz, and extrapolates 0 Hz from them); snp2le pins the equivalent
 circuit to that point.
 
-The subcircuit's pins are the ports that belong to no device (pads, bias inputs, ...). Each device terminal is wired
+The subcircuit's pins are the ports that belong to no device (pads, bias inputs, ...), in the order of their port
+numbers. A pin is named after its net's label in the layout (port map: net_name, e.g. Cas_in), else port<N>; see
+pin_names(). --numbered-pins names them all port<N>. Each device terminal is wired
 straight to its port's pin of the EM model. In the EM model a device's ports end on the device's own floating
 REF_FOR_TRANSISTOR patch, while the EM model references every port to ground: wiring the device directly grounds that
 patch. This adds the patch's capacitance (a few fF per transistor) and changes the result slightly (cascode test:
@@ -155,8 +157,36 @@ class Circuit:
         self.header = []            # (port number, layout port) of the pins
 
 
-def build(portmap, em_pins, dc_blocks, name):
-    """Circuit from the port map. em_pins: the EM model's pin count (= simulated ports)."""
+RESERVED_NODES = re.compile(r"(0|gnd|(n|e|port)\d+)$", re.I)     # ground, and this wrapper's own node names
+
+
+def pin_names(ports, numbered=False):
+    """{port number: pin name} of the ports that are no device terminals. A pin takes the label of its net in the
+    layout (port map: net_name, from an export with klayout_em_export 0.5.0 or newer), e.g. Cas_in, so that a
+    testbench reads like the schematic. Characters a node name can't have become "_"; a name that starts with a
+    digit gets "p_" in front. Two pins with the same name (two pads on one net, or the same label on two nets) get
+    "_p<port number>" behind it. Without a label, with a name that is the ground node or one of this wrapper's
+    own nodes, or with numbered=True: port<N>."""
+    pins = sorted(n for n, r in ports.items() if "device" not in r)
+    names = {}
+    for n in pins:
+        label = re.sub(r"\W", "_", str(ports[n].get("net_name") or "").strip())
+        if numbered or not label.strip("_"):
+            continue
+        if label[0].isdigit():
+            label = "p_" + label
+        if not RESERVED_NODES.match(label):
+            names[n] = label
+    count = {}
+    for label in names.values():
+        count[label.lower()] = count.get(label.lower(), 0) + 1      # ngspice does not tell upper from lower case
+    names = {n: (label if count[label.lower()] == 1 else f"{label}_p{n}") for n, label in names.items()}
+    return {n: names.get(n, f"port{n}") for n in pins}
+
+
+def build(portmap, em_pins, dc_blocks, name, numbered_pins=False):
+    """Circuit from the port map. em_pins: the EM model's pin count (= simulated ports). numbered_pins: the pins
+    are port<N>, also where the port map has the net's label."""
     ports = {r["port"]: r for r in portmap["ports"] if r["in_simcfg"]}
     if len(ports) != em_pins:
         sys.exit(f"the port map has {len(ports)} simulated ports, the EM model {em_pins} pins")
@@ -165,7 +195,8 @@ def build(portmap, em_pins, dc_blocks, name):
         c.tech = tech = technologies.load_circuit(portmap.get("technology") or technologies.PORTMAP_DEFAULT)
     except ValueError as e:
         sys.exit(f"port map: {e}")
-    node = {n: (f"n{n}" if "device" in r else f"port{n}") for n, r in ports.items()}
+    pins = pin_names(ports, numbered_pins)
+    node = {n: (f"n{n}" if "device" in r else pins[n]) for n, r in ports.items()}
     c.pins = [node[n] for n in sorted(ports) if "device" not in ports[n]]
     c.header = [(node[n], n, ports[n]["layout_port"]) for n in sorted(ports) if "device" not in ports[n]]
     if any(r["settings"] and "signal_layer" not in r for r in ports.values()):
@@ -297,6 +328,75 @@ def write_vacask(c, em_file, em_name, primitives):
     return "\n".join(out)
 
 
+XSCHEM_HEADER = "v {xschem version=3.4.5 file_version=1.2}\nG {}\n"
+
+
+def xschem_sides(pins):
+    """(left pins, right pins) of the symbol: pins with "out" in their name go to the right; without any such
+    pin, the second half does."""
+    right = [p for p in pins if "out" in p.lower()]
+    if not right or len(right) == len(pins):
+        half = (len(pins) + 1) // 2
+        return pins[:half], pins[half:]
+    return [p for p in pins if p not in right], right
+
+
+def xschem_symbol(c, netlist_file):
+    """xschem symbol of the subcircuit: a box with the pins, in the subcircuit's pin order. spice_sym_def makes
+    xschem put an .include of the circuit file (next to the symbol) into the netlist, so placing the symbol in a
+    schematic is all it takes."""
+    left, right = xschem_sides(c.pins)
+    rows = max(len(left), len(right), 1)
+    longest = max([len(p) for p in left] or [0]) + max([len(p) for p in right] or [0])
+    half = max(80, 10 * (-(-(longest * 7 + 60) // 20)))           # half width of the box, on the 10 grid
+    top = -10 * rows - 10
+    include = os.path.basename(netlist_file)
+    out = [XSCHEM_HEADER + "K {type=subcircuit",
+           'format="@name @pinlist @symname"',
+           'template="name=x1"',
+           f'spice_sym_def="tcleval(.include [file join [file dirname [abs_sym_path @symname\\\\.sym]] {include}])"',
+           "}", "V {}", "S {}", "E {}",
+           f"L 4 {-half} {top} {half} {top} {{}}", f"L 4 {-half} {-top} {half} {-top} {{}}",
+           f"L 4 {-half} {top} {-half} {-top} {{}}", f"L 4 {half} {top} {half} {-top} {{}}"]
+    position = {}
+    for side, names in ((-1, left), (1, right)):
+        for i, pin in enumerate(names):
+            position[pin] = (side * (half + 20), top + 20 + 20 * i, side)
+    for pin in c.pins:                                              # the pin order of the subcircuit
+        x, y, side = position[pin]
+        out += [f"L 4 {x} {y} {side * half} {y} {{}}",
+                f"B 5 {x - 2.5} {y - 2.5} {x + 2.5} {y + 2.5} {{name={pin} dir=inout}}",
+                f"T {{{pin}}} {side * (half - 5)} {y - 4} 0 {1 if side > 0 else 0} 0.2 0.2 {{}}"]
+    out += [f"T {{@symname}} {-half} {top - 30} 0 0 0.25 0.25 {{}}",
+            f"T {{@name}} {-half} {-top + 5} 0 0 0.2 0.2 {{}}", ""]
+    return "\n".join(out), position
+
+
+def xschem_testbench(c, symbol_file, position, simulator):
+    """A starter testbench for xschem: the symbol with a named label at each pin, the PDK's model libraries and an
+    operating point analysis. The designer adds sources and loads."""
+    name = os.path.basename(symbol_file)
+    models = "\n".join(f".lib $::SG13G2_MODELS{'_XYCE' if simulator == 'xyce' else ''}/{c.tech.LIBRARIES[kind][0]} "
+                       f"{c.tech.LIBRARIES[kind][1]}" for kind in sorted(c.kinds))
+    out = [XSCHEM_HEADER + "K {}", "V {}", "S {}", "E {}",
+           "T {The EM model with the PDK devices, from klayout_em_export (Create Circuit)} "
+           "-300 -260 0 0 0.4 0.4 {}",
+           "T {Add your sources and loads at the pins, and your analysis to the commands below.} "
+           "-300 -220 0 0 0.3 0.3 {}",
+           f"C {{{name}}} 0 0 0 0 {{name=x1}}"]
+    for i, pin in enumerate(c.pins, start=1):
+        x, y, side = position[pin]
+        out.append(f"C {{devices/lab_pin.sym}} {x} {y} 0 {1 if side > 0 else 0} "
+                   f"{{name=p{i} sig_type=std_logic lab={pin}}}")
+    out += ["C {devices/code_shown.sym} -300 160 0 0 {name=MODEL only_toplevel=true",
+            'format="tcleval( @value )"', 'value="', models, '"}',
+            "C {devices/code_shown.sym} 200 160 0 0 {name=" + ("XYCE" if simulator == "xyce" else "NGSPICE")
+            + " only_toplevel=true", 'value="',
+            ".op" if simulator == "xyce" else ".control\nop\nprint " + " ".join(f"v({pin})" for pin in c.pins) + "\n.endc",
+            '"}', ""]
+    return "\n".join(out)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("portmap")
@@ -308,6 +408,10 @@ def main():
                                        "active .lib lines (ngspice, Xyce)")
     parser.add_argument("--no-thermal-noise", dest="thermal_noise", action="store_false",
                         help="--em fit: a noiseless EM model (default: with the EM structure's thermal noise)")
+    parser.add_argument("--numbered-pins", action="store_true",
+                        help="name the pins port<N>, also where the port map has the net's label from the layout")
+    parser.add_argument("--no-xschem", dest="xschem", action="store_false",
+                        help="ngspice, Xyce: don't write the xschem symbol and the starter testbench")
     args = parser.parse_args()
     sim = args.simulator
     em = args.em or EM_DEFAULT[sim]
@@ -340,7 +444,7 @@ def main():
             em_notes += notes
     else:
         em_file, em_name, em_pins = os.path.abspath(args.snp).replace("\\", "/"), None, touchstone_ports(args.snp)
-    c = build(portmap, em_pins, dc_blocks, name)
+    c = build(portmap, em_pins, dc_blocks, name, args.numbered_pins)
     c.notes += em_notes
     if sim == "vacask":
         text = write_vacask(c, em_file, em_name, vacask_private_models(em_file))
@@ -350,6 +454,18 @@ def main():
         text = write_spice(c, sim, em, em_file, em_name, args.pdk)
     open(out, "w").write(text)
     print("wrote", out, "and", em_file if em == "fit" else f"(uses {em_file})")
+    if sim in ("ngspice", "xyce") and args.xschem:
+        # for xschem: a symbol named like the subcircuit, and a starter testbench (kept if it is there already:
+        # it is the designer's file from then on)
+        symbol_file = os.path.join(folder, name + ".sym")
+        symbol, position = xschem_symbol(c, out)
+        open(symbol_file, "w").write(symbol)
+        testbench = os.path.join(folder, name + "_tb.sch")
+        kept = os.path.exists(testbench)
+        if not kept:
+            open(testbench, "w").write(xschem_testbench(c, symbol_file, position, sim))
+        print("xschem: wrote the symbol", symbol_file, "and",
+              f"kept your testbench {testbench}" if kept else f"the starter testbench {testbench}")
 
 
 if __name__ == "__main__":

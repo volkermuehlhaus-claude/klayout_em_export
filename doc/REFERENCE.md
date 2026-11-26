@@ -303,6 +303,20 @@ N-port), and VACASK cannot yet (Touchstone import is planned).
 - Xyce: snp2le's Xyce format (`--format xyce`, newer than snp2le 0.1.20 on PyPI, found through `snp2le convert
   --help`). An older snp2le gives its ngspice format with `noisy=0` removed: then the fit's resistors add noise that
   is not the structure's, and the header notes that noise results are not valid.
+- Pin names: a pin has the label of its net in the layout, else `port<N>` (N: the port number of the export).
+  The export reads the labels: the texts of the exported cell itself (not of its subcells, whose texts are the pin
+  names of devices and pads) on the layer number of a traced metal, with the technology's label datatypes (IHP: 25
+  and 2, a metal's text and pin layers, e.g. TopMetal2.text 134/25; generic: any datatype). A label names the net
+  whose metal it sits on, inside the exported region; with several labels on one net, each port takes the nearest.
+  The port map has it as `net_name`. In the circuit, characters that a node name can't have become `_`, a leading
+  digit gets `p_` in front, two pins with the same name get `_p<N>` behind it, and a label that is the ground node
+  (`gnd`) or one of the wrapper's own node names (`n<N>`, `e<N>`, `port<N>`) is not used. `--numbered-pins` names
+  all pins `port<N>`. The pins are in the order of their port numbers, with or without names.
+- xschem (ngspice and Xyce; `--no-xschem` leaves them out): `<name>.sym`, a symbol with the subcircuit's pins in
+  their order, pins with "out" in the name on the right. Its `spice_sym_def` puts an `.include` of `<name>.cir`,
+  taken from the symbol's own folder, into the netlist. `<name>_tb.sch` is a starter testbench (symbol, a label
+  per pin, the `.lib` lines of the device kinds used with `$::SG13G2_MODELS`, an operating point); it is not
+  overwritten when it exists. Checked with xschem 3.4 and ngspice-47 in the IIC-OSIC-TOOLS image 2026.11.
 - Subcircuit `<name>`: its pins are the ports that belong to no device (pads, bias inputs); each replaced device is
   an instance of its PDK model (npn13G2 with Nx, le, we; MOSFETs with w, l, ng; resistors with w, l), its substrate or
   bulk pin to ground (pmos: to its source). A resistor from a static Cadence cell has no parameters: an ideal resistor

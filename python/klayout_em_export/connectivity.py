@@ -328,14 +328,55 @@ def check_ground(layout, cell, stackup, box=None, seeds=(), ports=None):
     return result
 
 
-def port_nets(ports, check):
+def net_labels(layout, cell, layers, datatypes=None):
+    """The net labels drawn in cell: [(text, Point in dbu, GDS layer)] for the texts on the given GDS layer numbers
+    (the traced metals) and datatypes (the technology's NET_LABEL_DATATYPES; None: any). Only texts of the cell
+    itself: texts inside subcells are the pin names of devices and pads, not the designer's net names."""
+    out = []
+    for li in layout.layer_indexes():
+        info = layout.get_info(li)
+        if info.layer not in layers or (datatypes is not None and info.datatype not in datatypes):
+            continue
+        for shape in cell.shapes(li).each(pya.Shapes.STexts):
+            text = shape.text
+            if text.string.strip():
+                out.append((text.string.strip(), pya.Point(text.x, text.y), info.layer))
+    return out
+
+
+def port_net_names(ports, nets, regions, labels):
+    """{port layer: net name} for the ports whose net carries a label. nets: port_nets' result, regions: the nets'
+    shapes as port_nets fills them ({net id: {GDS layer: Region}}), labels: net_labels' result. A label names the net
+    whose metal of that layer it sits on. With several different labels on one net, a port takes the nearest."""
+    on_net = {}                 # net id -> [(text, Point)]
+    for text, point, layer in labels:
+        spot = pya.Region(pya.Box(point.x - 1, point.y - 1, point.x + 1, point.y + 1))
+        for net, shapes in regions.items():
+            if layer in shapes and not shapes[layer].interacting(spot).is_empty():
+                on_net.setdefault(net, []).append((text, point))
+                break
+    out = {}
+    for layer, port in ports.items():
+        found = on_net.get(nets[layer][0]) if layer in nets else None
+        if not found:
+            continue
+        bbox = pya.Box()
+        for shape, trans, _ in port.items:
+            bbox += shape.bbox().transformed(trans)
+        center = bbox.center()
+        out[layer] = min(found, key=lambda item: (item[1].distance(center), item[0]))[0]
+    return out
+
+
+def port_nets(ports, check, regions=None):
     """{port layer: (net id, on the ground net, signal layer name or None)} of each port's signal end, from check
     (a GroundCheck of the same region): for a device port its terminal (the other end is the device's REF patch,
     which is not traced); for a port between two metals the end that is not on the ground net, or, if both are and
     they are joined only away from the port (not check.shorted), the smaller metal. The signal layer is None where
     that is ambiguous (a short, or both ends on other nets). Ports on the same net share
     the net id. A circuit wrapper ties them together for DC: a port measures a voltage difference, so the EM model
-    alone does not fix the absolute potential of a device whose ports end on its floating REF patch."""
+    alone does not fix the absolute potential of a device whose ports end on its floating REF patch.
+    regions: a dict that is filled with the nets' shapes, {net id: {GDS layer: Region}} (for port_net_names)."""
     nets = []                   # [{layer: Region}]
     out = {}
 
@@ -373,4 +414,6 @@ def port_nets(ports, check):
             other_is_sheet = any(by_name.get(n) is None for n in s.layer_names())   # e.g. REF_FOR_TRANSISTOR
             known = len(signal) == 1 and (len(ends) == 2 or other_is_sheet)
             out[layer] = (net, ground, name if known else None)
+    if regions is not None:
+        regions.update(enumerate(nets))
     return out

@@ -6,7 +6,7 @@ passes the stackup, the ground marks (seeds) and the technology."""
 import json
 import os
 
-from .connectivity import check_ground, port_nets
+from .connectivity import check_ground, net_labels, port_net_names, port_nets
 from .devices import device_shapes, find_devices, mark_replaced, orphaned_tags, unconnected_terminals
 from .boundary import port_wall_sides
 from .export import EM_REGION, export_flat   # noqa: F401  (EM_REGION is this module's public name for it)
@@ -106,7 +106,12 @@ def export_em(layout, cell, stackup, gds_path, technology, box=None, selection=N
     else:
         result = export_flat(layout, cell, stackup, gds_path, box=box, purposes=purposes, port_layers=numbering,
                              remove=remove, numbered_ports_only=given)
-    nets = port_nets(ports, check_ground(layout, cell, stackup, _clip(layout, box), seeds, ports))
+    check = check_ground(layout, cell, stackup, _clip(layout, box), seeds, ports)
+    net_shapes = {}
+    nets = port_nets(ports, check, net_shapes)
+    # the designer's net labels (Cas_in, VCC, ...) become the pin names of Create Circuit
+    labels = net_labels(layout, cell, set(check.metals), getattr(technology, "NET_LABEL_DATATYPES", None))
+    net_names = port_net_names(ports, nets, net_shapes, labels)
     directions = export_directions(ports, nets, stackup)    # every via port: signal metal on the same end
     port_list = simcfg_ports(ports, numbering, directions)
     # in-plane ports on the region's edge: those sides are port walls (ports made with Create Proposed Ports as
@@ -117,7 +122,7 @@ def export_em(layout, cell, stackup, gds_path, technology, box=None, selection=N
     kept = write_simcfg(base + ".simcfg", gds_path, stackup.path, result.cellname, ports=port_list, purpose=purposes,
                         port_walls=walls)
     with open(base + "_portmap.json", "w") as f:
-        json.dump(port_map(ports, numbering, devices, nets, directions, technology.NAME), f, indent=2)
+        json.dump(port_map(ports, numbering, devices, nets, directions, technology.NAME, net_names), f, indent=2)
     return {"gds": gds_path, "simcfg": base + ".simcfg", "portmap": base + "_portmap.json",
             "cellname": result.cellname, "ports": len(ports), "simcfg_ports": len(port_list),
             "kept_settings": kept, "port_list": port_list, "purposes": list(purposes), "report": result.report(),
