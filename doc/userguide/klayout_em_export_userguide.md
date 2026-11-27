@@ -370,6 +370,10 @@ The buttons:
   the chip's ground plane counts in every part where it enters the box, also where these parts connect only outside
   it. Shift+click removes the marks of the shapes under the click. The status bar names the metals under the
   pointer.
+
+  If your stackup computes a metal from drawn layers (a derived layer, e.g. Metal1 as 8/0 NOT 8/24 to cut slits),
+  mark the shapes you drew: a shape on 8/0 marks Metal1. The plug-in computes Metal1 as gds2palace does, so the
+  slits separate the pieces.
 - **Use Ports**: forget the marks and use the automatic choice again.
 - **Run Checks**: for large regions, and for a layout without EM setup, the checks do not run on every change; press
   it to run them.

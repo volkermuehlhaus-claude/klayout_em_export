@@ -17,7 +17,8 @@ from .pipeline import EM_REGION, META_GROUND, META_OUTPUT, META_STACKUP, export_
 from .ports import DIRECTIONS, PROP_KEY, PortSettings, check_ports, collect_ports, ports_of, settings_of
 from .selection import Selection
 from .simcfg import em_export_purposes, own_setup_files
-from .stackup import Stackup, find_layer as layer_index, key_text
+from .layers import polygon_at, region as layer_region
+from .stackup import Stackup, key_text
 from .thermal import describe_markers, export_thermal, heat_sources, heat_target, marker_preview, target_names
 
 # remembered choices; KLAYOUT_EM_EXPORT_SETTINGS moves the file (the tests use their own, never the user's)
@@ -286,19 +287,28 @@ def mark_ground():
             skipped += 1
             continue
         info = layout.get_info(obj.layer)
-        key = stackup.key_of(info.layer, info.datatype)       # the stackup layer read from these shapes
-        if key not in traced:
+        # the stackup layers read from these shapes: the drawn one, and the derived metals computed from them (a
+        # shape on the 8/0 frame counts for Metal1 = 8/0 NOT 8/24)
+        keys = [k for k in [stackup.key_of(info.layer, info.datatype)] + stackup.derived_keys_of(info.layer, info.datatype)
+                if k in traced]
+        if not keys:
             skipped += 1
             continue
         shapes += 1
-        polygon = obj.shape.polygon.transformed(obj.trans())
+        drawn = pya.Region(obj.shape.polygon.transformed(obj.trans()))
         if region is not None:                          # its part in the EM region box, if it has one
-            for part in (pya.Region(polygon) & region).each():
-                polygon = part.dup()
-                break
-        inside = polygon.decompose_trapezoids()[0].bbox().center()    # a trapezoid is convex: its center is inside
-        if (key, inside) not in seeds:                  # marking the same shape again adds nothing
-            seeds.append((key, inside))
+            drawn = (drawn & region) if not (drawn & region).is_empty() else drawn
+        for key in keys:
+            part = drawn
+            if key in stackup.derived_spec:             # the derived metal inside the shape (not in a slit)
+                computed = layer_region(layout, cv.cell, stackup, key, drawn.bbox())
+                part = drawn & computed if computed is not None else pya.Region()
+            polygon = next((p.dup() for p in part.each()), None)
+            if polygon is None:
+                continue
+            inside = polygon.decompose_trapezoids()[0].bbox().center()    # a trapezoid is convex: its center is inside
+            if (key, inside) not in seeds:              # marking the same shape again adds nothing
+                seeds.append((key, inside))
     if not shapes:
         pya.MessageBox.warning("EM Export", "Select one or more metal shapes of the ground first (shapes, not "
                                "instances; on the stackup's wiring layers).", pya.MessageBox.Ok)
@@ -316,18 +326,9 @@ def _shapes_at_point(layout, cell, stackup, point):
     for l in stackup.layers:
         if l.key not in traced:
             continue
-        li = layer_index(layout, l.key)
-        if li is None:
-            continue
-        it = cell.begin_shapes_rec_touching(li, pya.Box(point, point))
-        while not it.at_end():
-            shape = it.shape()
-            if not shape.is_text() and shape.polygon is not None:
-                polygon = shape.polygon.transformed(it.trans())
-                if polygon.inside(point):
-                    out.append((l.key, l.name, polygon))
-                    break
-            it.next()
+        polygon = polygon_at(layout, cell, stackup, l.key, point)     # a derived metal computed from its operands
+        if polygon is not None:
+            out.append((l.key, l.name, polygon))
     return out
 
 
@@ -381,15 +382,11 @@ def unmark_ground_at(layout, cell, stackup, point):
     marked by a click or by Mark Selected. Returns the names of the metals unmarked."""
     names = stackup.names()
     kept, removed = [], []
+    at_point = {}                       # layer key -> the polygon at the click (computed once per layer)
     for layer, seed in ground_seeds(layout):
-        li = layer_index(layout, layer)
-        hit = False
-        if li is not None:
-            it = cell.begin_shapes_rec_touching(li, pya.Box(point, point))
-            while not it.at_end() and not hit:
-                shape = it.shape()
-                hit = not shape.is_text() and shape.polygon is not None and shape.polygon.transformed(it.trans()).inside(seed)
-                it.next()
+        if layer not in at_point:
+            at_point[layer] = polygon_at(layout, cell, stackup, layer, point)
+        hit = at_point[layer] is not None and at_point[layer].inside(seed)
         if hit:
             removed.append(names.get(layer, key_text(layer)))
         else:

@@ -107,6 +107,15 @@ class Stackup:
         self.derived = {_layer_number(e, path): (e.get("Name"), e.get("Operation"),
                                                  [_layer_number(o, path) for o in e.iter("Operand")])
                         for e in root.iter("DerivedLayer")}
+        # derived layer number -> (operation, [operand layer keys], Oversize in µm or None if given by a variable):
+        # what layers.region needs to compute a derived conductor or via as gds2palace does
+        self.derived_spec = {}
+        for e in root.iter("DerivedLayer"):
+            raw = e.get("Oversize")
+            oversize = 0.0 if raw is None or raw.strip() == "" else _number(raw)
+            self.derived_spec[_layer_number(e, path)] = (
+                (e.get("Operation") or "").upper(),
+                [layer_key(_layer_number(o, path), _datatype(o, path)) for o in e.iter("Operand")], oversize)
         # dielectrics with a Boundary= layer: their outline is drawn in the GDS
         self.boundary_layers = sorted({int(e.get("Boundary")) for e in root.iter("Dielectric")
                                        if (e.get("Boundary") or "").lstrip("-").isdigit()})
@@ -154,6 +163,47 @@ class Stackup:
     def names(self):
         """{layer key: stackup name}."""
         return {l.key: l.name for l in self.layers}
+
+    def is_traced_derived(self, l):
+        """True for a derived conductor or via (e.g. Metal1 computed as 8/0 NOT 8/24) that the checks trace, computed
+        from its operands (layers.region). Derived sheets (the SG13G2 resistors) and dielectrics are no wiring, and a
+        derived layer with an Oversize given by a variable cannot be computed here."""
+        return (l.layer in self.derived and l.kind in ("conductor", "via") and self.derived_spec[l.layer][2] is not None
+                and self.derived_spec[l.layer][0] in ("OR", "AND", "NOT", "XOR", "SIZE"))
+
+    def is_traced(self, l):
+        """A layer the checks trace or search: drawn directly, or a derived conductor or via (is_traced_derived)."""
+        return l.layer not in self.derived or self.is_traced_derived(l)
+
+    def sources(self, number, _seen=()):
+        """The drawn layer keys a derived layer is computed from, through derived operands (recursive)."""
+        out = set()
+        for operand in self.derived_spec.get(number, ((), (), 0))[1]:
+            n, own = split_key(operand)
+            if own is None and n in self.derived_spec and n not in _seen:
+                out |= self.sources(n, _seen + (number,))
+            else:
+                out.add(operand)
+        return out
+
+    def drawn_source(self, key):
+        """The drawn layer a layer key stands for in the layout: the key itself, or for a derived layer its first
+        operand, through derived operands (Metal1 = 8/0 NOT 8/24: 8/0). The PDK's device cells draw their metal
+        there."""
+        number, own = split_key(key)
+        seen = set()
+        while own is None and number in self.derived_spec and number not in seen and self.derived_spec[number][1]:
+            seen.add(number)
+            key = self.derived_spec[number][1][0]
+            number, own = split_key(key)
+        return key
+
+    def derived_keys_of(self, number, datatype):
+        """Keys of the traced derived layers (is_traced_derived) computed from these shapes (GDS layer number and
+        datatype): a mark on the 8/0 frame counts for Metal1 = 8/0 NOT 8/24. An operand without a Datatype is read
+        from datatype 0, as everywhere in the checks."""
+        here = {layer_key(number, datatype)} | ({number} if datatype == 0 else set())
+        return [l.key for l in self.layers if self.is_traced_derived(l) and self.sources(l.layer) & here]
 
     def metal_names(self):
         """Conductor and sheet layers, top to bottom as in the file: the choices for port layers."""
@@ -209,11 +259,12 @@ class Stackup:
 
     def via_neighbors(self, delta=1e-5):
         """{via layer key: ([metals directly below], [metals directly above])} as StackupLayers, for the vias
-        drawn in the GDS that have drawn metals on both sides (z within delta, as gds2palace). Lists, because
+        drawn in the GDS (or derived ones the checks compute) that have such metals on both sides (z within delta, as gds2palace). Lists, because
         a via can sit on more than one layer (Cont: on Activ and on the REF_FOR_TRANSISTOR sheet)."""
-        metals = [(l, self.z_range(l)) for l in self.layers if l.is_metal and l.layer not in self.derived]
+        # drawn metals and the derived conductors the checks compute (is_traced_derived); not derived sheets
+        metals = [(l, self.z_range(l)) for l in self.layers if l.is_metal and self.is_traced(l)]
         out = {}                    # keyed by the via's layer key
-        for via in (l for l in self.layers if l.kind == "via" and l.layer not in self.derived):
+        for via in (l for l in self.layers if l.kind == "via" and self.is_traced(l)):
             z = self.z_range(via)
             if z is None:
                 continue

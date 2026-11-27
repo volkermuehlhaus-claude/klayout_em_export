@@ -443,7 +443,9 @@ class EMPanel(pya.QWidget):
                    if 201 <= layout.get_info(li).layer <= 299)
 
     def _region_size(self, layout, cell, stackup, clip):
-        layers = wiring(stackup)[0]
+        layers = set()
+        for layer in wiring(stackup)[0]:        # a derived metal counts by its drawn operands
+            layers |= stackup.sources(layer) if layer in stackup.derived_spec else {layer}
         total = 0
         for layer in layers:
             li = layer_index(layout, layer)

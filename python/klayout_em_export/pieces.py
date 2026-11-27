@@ -28,6 +28,7 @@ from .connectivity import check_ground
 from .ports import collect_ports
 from .export import EM_REGION
 from .simcfg import write_simcfg
+from .layers import region as stackup_region
 from .stackup import find_layer as layer_index, key_text
 from .regions import Piece, cuts_of, find_cuts, piece_number, read_pieces, set_pieces, union_box
 
@@ -173,7 +174,7 @@ def coupling_warnings(layout, cell, stackup, pieces, cuts, seeds=()):
         a = next(p for p in pieces if p.name == cut.a)
         b = next(p for p in pieces if p.name == cut.b)
         box = a.box + b.box
-        metals = layer_regions(layout, cell, metal_names, box)
+        metals = layer_regions(layout, cell, metal_names, box, stackup=stackup)
         line = pya.Region(cut.edge.bbox().enlarged(1, 1))
         crossing = pya.Region()
         for region in metals.values():
@@ -439,9 +440,14 @@ def import_warnings(layout, cell, stackup, imported, devices=()):
         # the line is still there if the metal of its layer meets the cut over the same extent (not just some metal
         # there: a shifted ground strip would cover the old position too)
         found = False
-        if li is not None:
-            line = pya.Region(cut.enlarged(1, 1))
-            on_cut = pya.Region(cell.begin_shapes_rec_touching(li, cut.enlarged(1, 1))) & line
+        line = pya.Region(cut.enlarged(1, 1))
+        on_cut = None
+        if stackup is not None and layer is not None:       # a derived metal computed from its operands
+            on_cut = stackup_region(layout, cell, stackup, int(layer), cut.enlarged(1, 1))
+        elif li is not None:
+            on_cut = pya.Region(cell.begin_shapes_rec_touching(li, cut.enlarged(1, 1)))
+        if on_cut is not None:
+            on_cut = on_cut & line
             on_cut.merge()
             tol = max(2, round(0.01 / dbu))
             for part in on_cut.each():
@@ -459,15 +465,19 @@ def import_warnings(layout, cell, stackup, imported, devices=()):
                 a, b = link["ports"][0][0], link["ports"][1][0]
                 out.append(f"the cut {a}|{b} runs through device {d.pcell} {d.id.split('@')[0]}")
     for layer, x, y in imported.get("ground", []):
-        li = layer_index(layout, int(layer))
         p = pya.Point(round(x / dbu), round(y / dbu))
-        hit = False
-        if li is not None:
-            it = cell.begin_shapes_rec_touching(li, pya.Box(p, p))
-            while not it.at_end() and not hit:
-                shape = it.shape()
-                hit = not shape.is_text() and shape.polygon is not None and shape.polygon.transformed(it.trans()).inside(p)
-                it.next()
+        if stackup is not None:
+            shapes = stackup_region(layout, cell, stackup, int(layer), pya.Box(p, p).enlarged(1, 1))
+            hit = shapes is not None and any(polygon.inside(p) for polygon in shapes.each())
+        else:
+            li = layer_index(layout, int(layer))
+            hit = False
+            if li is not None:
+                it = cell.begin_shapes_rec_touching(li, pya.Box(p, p))
+                while not it.at_end() and not hit:
+                    shape = it.shape()
+                    hit = not shape.is_text() and shape.polygon is not None and shape.polygon.transformed(it.trans()).inside(p)
+                    it.next()
         if not hit:
             name = (next((l.name for l in stackup.layers if l.key == int(layer)), key_text(layer)) if stackup
                     else key_text(layer))

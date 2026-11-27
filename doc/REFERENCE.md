@@ -305,6 +305,14 @@ N-port), and VACASK cannot yet (Touchstone import is planned).
 - Xyce: snp2le's Xyce format (`--format xyce`, newer than snp2le 0.1.20 on PyPI, found through `snp2le convert
   --help`). An older snp2le gives its ngspice format with `noisy=0` removed: then the fit's resistors add noise that
   is not the structure's, and the header notes that noise results are not valid.
+- Derived metals: a derived conductor or via of the stackup (`<DerivedLayers>`, e.g. Metal1 = 8/0 NOT 8/24) is
+  traced like a drawn one, computed from its operands with gds2palace's operations (OR, AND, NOT, XOR folded over
+  the operands, SIZE, then Oversize; KLayout's sizing corners). Ground marks: a selected or clicked shape on an
+  operand (8/0) marks the derived metal, at a point of the derived metal inside the shape (a shape inside a slit
+  marks nothing). The EM Port tool searches a derived metal when one of its operands is visible. Device
+  recognition reads a derived Metal1 from its first operand. Not computed: a derived layer whose Oversize is
+  given by a variable. Derived sheets (resistors) and dielectrics are no wiring. Remove Dummy Fill and Fill
+  Density Holes and Merge Metal work on the stackup's drawn layers only, not on the operands of a derived metal.
 - Datatype per stackup layer (`Datatype` on `<Layer>` and `<Operand>`, `BoundaryDatatype` on `<Dielectric>`,
   stackup format 3.2): the export keeps such a layer on exactly that datatype, whatever the export's datatypes
   are; a layer without one follows the export's datatypes. The checks and tools read such a layer from its

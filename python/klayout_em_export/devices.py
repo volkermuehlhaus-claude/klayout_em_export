@@ -17,7 +17,7 @@ import pya
 from .connectivity import wiring
 from .locate import create_layers, free_port_layers, next_port_layer
 from .ports import DEVICE_KEY, PROP_KEY, PortSettings
-from .stackup import find_layer as layer_index
+from .stackup import find_layer as layer_index, split_key
 from .tech import for_layout
 
 REF_NAME = "REF_FOR_TRANSISTOR"
@@ -86,7 +86,11 @@ def find_devices(layout, cell, stackup, technology=None):
     m1, _ = _lowest_wiring_metal(stackup)
     if m1 is None:
         return [], []
-    m1_li = layer_index(layout, m1)
+    # a derived Metal1 (8/0 NOT 8/24): the device cells draw on its drawn source, the technology matches pins there;
+    # the terminals go to the checks under the derived layer's key
+    m1_drawn = stackup.drawn_source(m1)
+    m1_li = layer_index(layout, m1_drawn)
+    m1_number = split_key(m1_drawn)[0]
     ctx = tech.context(layout, stackup)
     # each cell once, not each instance: a filled layout has hundreds of thousands of instances of a few dozen cells
     found = {}          # cell index: (name, params, problem) of the device cells and the cells with a problem
@@ -113,7 +117,10 @@ def find_devices(layout, cell, stackup, technology=None):
             device.m1 = pya.Region(c.begin_shapes_rec(m1_li)).transformed(trans).merged() if m1_li is not None \
                 else pya.Region()
             device.m1_layer = m1
-            tech.terminals(layout, cell, c, trans, device, ctx, m1_li, m1, stackup)
+            tech.terminals(layout, cell, c, trans, device, ctx, m1_li, m1_number, stackup)
+            if m1_number != m1:
+                device.terminals = {t: ((m1 if layer == m1_number else layer), boxes)
+                                    for t, (layer, boxes) in device.terminals.items()}
             devices.append(device)
         it.next()
     return devices, sorted(unknown.items())
@@ -263,13 +270,14 @@ def unconnected_terminals(layout, devices, check):
     connectivity.GroundCheck of the region, for its metal and via regions) holds only the device's own metal. Such a
     terminal floats in the EM model, e.g. when the wiring to the device was cut."""
     from .connectivity import flood
+    from .layers import region as stackup_region
     out = []
     for device in devices:
         c = layout.cell(device.cell_index)
         own = {}
-        for layer in check.metals:
-            li = layer_index(layout, layer)
-            own[layer] = pya.Region() if li is None else pya.Region(c.begin_shapes_rec(li)).transformed(device.trans)
+        for layer in check.metals:      # the device's own metal, a derived layer computed in the device cell
+            shapes = stackup_region(layout, c, check.stackup, layer)
+            own[layer] = pya.Region() if shapes is None else shapes.transformed(device.trans)
         for terminal, (pin_layer, pins) in sorted(device.terminals.items()):
             if pin_layer not in check.metals:
                 continue

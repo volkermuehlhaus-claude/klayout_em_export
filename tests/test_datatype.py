@@ -74,7 +74,8 @@ metals, connections = wiring(st)
 check(metals == {M2: "M2", M1: "M1", 71: "M0", 310: "MD"} or metals == {M2: "M2", M1: "M1", 71: "M0"},
       f"traced metals by key: { {key_text(k): v for k, v in metals.items()} }")
 check(connections == [(V1, M1, M2)], "the via on 68/44 connects M1 (68/20) and M2 (69/20)")
-check(drawn_metals(st) == [("M2", M2), ("M1", M1), ("M0", 71)], "drawn metals by key, top first")
+check(drawn_metals(st) == [("M2", M2), ("M1", M1), ("M0", 71), ("MD", 310)],
+      "metals by key, top first (MD: a derived conductor, computed from 70/7 OR 72)")
 check(fill_layers(st) == sorted([M1, M2, 71]), "metals searched for fill, not the via on 68/44")
 bad = os.path.join(OUT, "bad_stackup.xml")
 open(bad, "w").write(XML.replace('Datatype="20" Zmin="3"', 'Datatype="=dt" Zmin="3"'))

@@ -352,6 +352,11 @@ all known technologies (`tech.device_level_names`), so it needs no layout. A rul
 lowest conductor is the diffusion in a stackup with front end, but Metal1 in a stackup without it, and nothing in
 the stackup tells the two apart.
 
+Derived conductors and vias are traced too (`Stackup.is_traced_derived`): a designer may compute Metal1 from
+the drawn layers, e.g. 8/0 NOT 8/24 to cut slits, and then the ground is drawn on 8/0. `layers.region` computes a
+derived layer from its operands as gds2palace does, inside the checked box (grown by the Oversize). Derived sheets
+are left out: the SG13G2 resistors sit at the Activ level, where they would hang on Cont and are no wiring.
+
 The traced layers are keyed by `stackup.layer_key`: the GDS layer number, or for a layer with a Datatype (stackup
 format 3.2) a number that holds layer and datatype, as gds2palace's layer id. Keyed by the plain number, a metal on
 68/20 and its via on 68/44 would be one layer, and a lookup on datatype 0 would find nothing of either. With IHP

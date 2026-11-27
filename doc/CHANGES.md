@@ -11,6 +11,13 @@ Before, the export dropped these shapes unless their datatype was among the expo
 looked at datatype 0. Device recognition needs a technology module; IHP stackups name no datatypes and work as
 before.
 
+**Metals computed from other layers.** A stackup can compute a metal from drawn layers, e.g. Metal1 as 8/0 NOT
+8/24 to cut slits into the drawn metal. The checks now treat such a derived conductor or via as the metal it is,
+computed as gds2palace does: you can mark a shape on 8/0 as ground (a click on the frame marks Metal1), the slits
+separate the pieces, Via1 connects Metal1 to Metal2, and the EM Port tool and the ports at the region edge work on
+Metal1. Before, a derived metal was left out of the checks, so a ground drawn on 8/0 could not be marked or found.
+Derived sheets, such as the SG13G2 resistors, are still no wiring.
+
 **Create Circuit: symbol and testbench for xschem.** For ngspice and Xyce, Create Circuit now also writes an
 xschem symbol of the circuit and a starter testbench with the PDK's model library. Open the testbench in xschem,
 add sources and loads, and simulate: the symbol brings the circuit file along. `examples/cascode/xschem` has a

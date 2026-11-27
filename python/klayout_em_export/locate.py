@@ -3,26 +3,25 @@
 import pya
 
 from .export import PORT_LAYERS, port_layer_numbers
-from .stackup import find_layer as layer_index
+from .layers import region as stackup_region
 
 
 def drawn_metals(stackup):
-    """[(name, layer key)] of the stackup metals drawn directly in the GDS, top to bottom (the key: the GDS layer
-    number, or number and datatype for a layer with a Datatype, see stackup.layer_key).
-    Derived layers (e.g. the SG13G2 resistor sheets) are computed by gds2palace and are left out."""
-    return [(l.name, l.key) for l in stackup.layers if l.is_metal and l.layer not in stackup.derived]
+    """[(name, layer key)] of the stackup metals in the GDS, top to bottom (the key: the GDS layer number, or number
+    and datatype for a layer with a Datatype, see stackup.layer_key): those drawn directly, and derived conductors
+    computed from drawn layers (Metal1 = 8/0 NOT 8/24, see Stackup.is_traced_derived). Derived sheets (e.g. the
+    SG13G2 resistors) are left out."""
+    return [(l.name, l.key) for l in stackup.layers if l.is_metal and stackup.is_traced(l)]
 
 
-def _region(layout, cell, layer, box, datatype=0):
-    li = layer_index(layout, layer, datatype)
-    if li is None:
-        return pya.Region()
-    return pya.Region(cell.begin_shapes_rec_touching(li, box)).merged()
+def _region(layout, cell, stackup, layer, box, datatype=0):
+    shapes = stackup_region(layout, cell, stackup, layer, box, datatype, clip=False)    # whole shapes, as drawn
+    return pya.Region() if shapes is None else shapes
 
 
 def metals_at(layout, cell, stackup, box):
     """Names of the stackup metals that touch box (a port shape's bbox), top to bottom."""
-    return [name for name, layer in drawn_metals(stackup) if not _region(layout, cell, layer, box).is_empty()]
+    return [name for name, layer in drawn_metals(stackup) if not _region(layout, cell, stackup, layer, box).is_empty()]
 
 
 def via_layers(metals_here, clicked):
@@ -44,9 +43,9 @@ def _manhattan(edge):
 
 def _searched(stackup, layers):
     """(rank, name, layer key) of the drawn metals to search: all, or only those whose key is in layers (the EM
-    Port tool passes the visible ones, tool.visible_layers). The rank stays the metal's place in the stackup, top first."""
+    Port tool passes the visible ones, tool.visible_layers); a derived metal if one of its operands is visible. The rank stays the metal's place in the stackup, top first."""
     return [(rank, name, layer) for rank, (name, layer) in enumerate(drawn_metals(stackup))
-            if layers is None or layer in layers]
+            if layers is None or layer in layers or (layer in stackup.derived_spec and stackup.sources(layer) & layers)]
 
 
 def edge_at(layout, cell, stackup, point, tol, layers=None):
@@ -56,7 +55,7 @@ def edge_at(layout, cell, stackup, point, tol, layers=None):
     search = pya.Box(point, point).enlarged(tol, tol)
     best = None
     for rank, name, layer in _searched(stackup, layers):
-        for edge in _region(layout, cell, layer, search).edges().each():
+        for edge in _region(layout, cell, stackup, layer, search).edges().each():
             if not _manhattan(edge) or not _projects(edge, point):
                 continue
             d = edge.distance_abs(point)
@@ -82,7 +81,7 @@ def gap_at(layout, cell, stackup, point, reach, layers=None):
     search = pya.Box(point, point).enlarged(reach, reach)
     best = None
     for rank, name, layer in _searched(stackup, layers):
-        region = _region(layout, cell, layer, search)
+        region = _region(layout, cell, stackup, layer, search)
         if region.is_empty() or not region.interacting(pya.Region(pya.Box(point, point).enlarged(1, 1))).is_empty():
             continue
         for direction in ("X", "Y"):

@@ -18,7 +18,8 @@ inductor winding grounded at its far end, a grounded stub) is a DC path, but no 
 import pya
 
 from .ports import device_of
-from .stackup import find_layer as layer_index, split_key
+from .layers import region as stackup_region
+from .stackup import split_key
 from .tech import device_level_names
 
 OTHER_NETS_LIMIT = 300              # count the separate other nets only up to this many polygons
@@ -29,10 +30,11 @@ NEAR_UM = 10.0                      # neighbourhood of a port or cut (µm, at le
 def wiring(stackup):
     """(metal layers {layer key: name}, connections [(via key, key below, key above)]) that are traced. A layer key
     is the GDS layer number, or for a stackup layer with a Datatype a number that holds both (stackup.layer_key):
-    a metal on 68/20 and its via on 68/44 are two layers."""
+    a metal on 68/20 and its via on 68/44 are two layers. A derived conductor or via (Metal1 = 8/0 NOT 8/24) is
+    traced too, computed from its operands (layers.region)."""
     device_level = device_level_names()      # see the module doc
     metals = {l.key: l.name for l in stackup.layers
-              if l.kind == "conductor" and l.layer not in stackup.derived and l.name not in device_level}
+              if l.kind == "conductor" and stackup.is_traced(l) and l.name not in device_level}
     connections = []
     for via, (below, above) in stackup.via_neighbors().items():
         if len(below) == 1 and len(above) == 1 and below[0].key in metals and above[0].key in metals:
@@ -40,19 +42,14 @@ def wiring(stackup):
     return metals, connections
 
 
-def layer_regions(layout, cell, layers, box=None, datatype=0):
+def layer_regions(layout, cell, layers, box=None, datatype=0, stackup=None):
     """{layer key: merged Region} of the given layers (keys) in cell, clipped to box (Box in dbu) if given. A layer
-    with a Datatype is read from it, the others from datatype."""
+    with a Datatype is read from it, the others from datatype; with the stackup, a derived layer is computed from
+    its operands."""
     out = {}
     for layer in layers:
-        li = layer_index(layout, layer, datatype)
-        if li is None:
-            continue
-        region = pya.Region(cell.begin_shapes_rec(li) if box is None else cell.begin_shapes_rec_touching(li, box))
-        if box is not None:
-            region &= pya.Region(box)
-        region.merge()
-        if not region.is_empty():
+        region = stackup_region(layout, cell, stackup, layer, box, datatype)
+        if region is not None and not region.is_empty():
             out[layer] = region
     return out
 
@@ -172,6 +169,7 @@ class GroundCheck:
         self.vias = {}              # {layer key: Region} of the vias between them, as blocks (via_blocks)
         self.connections = []       # [(via key, key below, key above)]
         self.shorted = []           # numbers of via ports whose two ends are on the same net (a short circuit)
+        self.stackup = None         # the stackup checked, for derived layers (layers.region)
 
     def summary(self):
         if not self.net:
@@ -210,37 +208,29 @@ def shorted_ports(metals, vias, connections, port_ends, windows):
     return out
 
 
-def _seed(layout, cell, layer, point, box):
+def _seed(layout, cell, layer, point, box, stackup=None):
     """Region that a ground mark (a point in the marked shape) starts from: the point; or, if the point lies outside
-    box (the region checked), the drawn shapes at the point, cut to box - a mark is one point in a shape that may
-    reach far beyond the region (a ground plane)."""
+    box (the region checked), the shape at the point, cut to box - a mark is one point in a shape that may reach far
+    beyond the region (a ground plane)."""
     at = pya.Box(point, point).enlarged(1, 1)
     if box is None or box.contains(point):
         return pya.Region(at)
-    li = layer_index(layout, layer)
-    if li is None:
-        return pya.Region()
-    shapes = pya.Region()
-    it = cell.begin_shapes_rec_touching(li, at)
-    while not it.at_end():
-        if not it.shape().is_text():
-            polygon = it.shape().polygon.transformed(it.trans())
-            if polygon.inside(point):
-                shapes.insert(polygon)
-        it.next()
-    return shapes & pya.Region(box)
+    from .layers import polygon_at
+    polygon = polygon_at(layout, cell, stackup, layer, point)
+    return pya.Region() if polygon is None else pya.Region(polygon) & pya.Region(box)
 
 
 def check_ground(layout, cell, stackup, box=None, seeds=(), ports=None):
     """Ground net in cell (clipped to box, Box in dbu). seeds: [(layer key, Point)] marked ground shapes; without
     them the ground is found from ports ({layer: Port} from ports.collect_ports)."""
     metal_names, connections = wiring(stackup)
-    metals = layer_regions(layout, cell, metal_names, box)
-    vias = layer_regions(layout, cell, [c[0] for c in connections], box)
+    metals = layer_regions(layout, cell, metal_names, box, stackup=stackup)
+    vias = layer_regions(layout, cell, [c[0] for c in connections], box, stackup=stackup)
     for via, below, above in connections:
         if via in vias and below in metals and above in metals:
             vias[via] = via_blocks(vias[via], metals[below], metals[above])
     result = GroundCheck()
+    result.stackup = stackup
     result.names = metal_names
     result.metals, result.vias, result.connections = metals, vias, connections
     port_ends = []                  # (port number, layer, Region of the metal at the port line)
@@ -270,7 +260,7 @@ def check_ground(layout, cell, stackup, box=None, seeds=(), ports=None):
         result.source = f"{len(seeds)} marked shape(s)"
         pieces = []
         for layer, point in seeds:
-            seed = _seed(layout, cell, layer, point, box)
+            seed = _seed(layout, cell, layer, point, box, stackup)
             if any(_touches(piece, layer, seed) for piece in pieces):
                 continue
             piece = flood(metals, vias, connections, {layer: seed})
