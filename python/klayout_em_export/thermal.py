@@ -132,7 +132,7 @@ def left_out_layers(layout, cell, stackup, box=None, markers=(), purposes=(0,)):
     left_out = []
     for li in layout.layer_indexes():
         info = layout.get_info(li)
-        if info.layer in skipped or info.layer in kept and info.datatype in purposes:
+        if info.layer in skipped or info.layer in kept and stackup.reads(info.layer, info.datatype, purposes):
             continue
         it = cell.begin_shapes_rec(li) if clip is None else cell.begin_shapes_rec_touching(li, clip)
         if not it.at_end():

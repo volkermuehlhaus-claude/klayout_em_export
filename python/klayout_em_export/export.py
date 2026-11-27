@@ -61,9 +61,15 @@ def _copy_port_shapes(layout, cell, li, box, target, target_layout):
     return count
 
 
-def _is_kept(key, keep, purposes, ports):
+def _is_kept(key, keep, purposes, ports, stackup=None):
+    """A stackup layer is kept on the datatypes the model reads (stackup.reads: the Datatype the stackup names for
+    it, else the export's datatypes), a port layer on the export's datatypes."""
     layer, datatype = key
-    return (layer in keep or layer in ports) and datatype in purposes
+    if layer in ports and datatype in purposes:
+        return True
+    if layer not in keep:
+        return False
+    return datatype in purposes if stackup is None else stackup.reads(layer, datatype, purposes)
 
 
 def export_flat(layout, cell, stackup, gds_path, box=None, purposes=(0,), cellname=None, selection=None,
@@ -72,7 +78,8 @@ def export_flat(layout, cell, stackup, gds_path, box=None, purposes=(0,), cellna
     (selection.Selection), only its shapes are written, uncut, and box is ignored.
 
     Kept: the stackup's GDS layers (derived layers by their sources) and the port layers (port_layer_numbers),
-    only for the given purposes (datatypes). Everything else is reported in result.dropped. Metal is merged per layer and cut
+    only for the given purposes (datatypes); a stackup layer with a Datatype (stackup format 3.2) on that datatype
+    instead, whatever the purposes are, as gds2palace reads it. Everything else is reported in result.dropped. Metal is merged per layer and cut
     at the box edge; port shapes are copied unchanged if they touch the box. port_layers {layout port layer:
     exported layer} renumbers the ports (ports.export_numbering). remove {GDS layer: Region} is cut out of those
     layers (the replaced devices' own shapes below Metal1, devices.device_shapes).
@@ -93,14 +100,14 @@ def export_flat(layout, cell, stackup, gds_path, box=None, purposes=(0,), cellna
     top = em.create_cell(result.cellname)
     if selection is not None:
         for key, region in selection.regions.items():
-            if not _is_kept(key, keep, purposes, ports):
+            if not _is_kept(key, keep, purposes, ports, stackup):
                 result.dropped[key] = region.count()
                 continue
             merged = ((region - remove[key[0]]) if key[0] in remove else region).merged()
             top.shapes(em.layer(*key)).insert(merged)
             result.kept[key] = merged.count()
         for key, shape, trans in selection.ports:
-            if not _is_kept(key, keep, purposes, ports):
+            if not _is_kept(key, keep, purposes, ports, stackup):
                 result.dropped[key] = result.dropped.get(key, 0) + 1
                 continue
             out = (port_layers.get(key[0], key[0]), key[1])
@@ -115,7 +122,7 @@ def export_flat(layout, cell, stackup, gds_path, box=None, purposes=(0,), cellna
         is_port = info.layer in ports
         if is_port and numbered_ports_only and info.layer not in port_layers:
             continue
-        if not _is_kept(key, keep, purposes, ports):
+        if not _is_kept(key, keep, purposes, ports, stackup):
             it = cell.begin_shapes_rec(li) if clip is None else cell.begin_shapes_rec_touching(li, clip)
             count = sum(1 for _ in it.each())
             if count:

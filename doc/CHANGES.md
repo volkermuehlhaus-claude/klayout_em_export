@@ -2,6 +2,12 @@
 
 ## 0.5.0 (24 November 2026)
 
+**Stackups with a datatype per layer.** A stackup can name the GDS datatype of a layer (gds2palace 0.13.0, e.g. a
+metal on 68/20 and a via on 68/44). The export now keeps such a layer on that datatype, as gds2palace reads it;
+before, its shapes were dropped unless that datatype was among the export's datatypes. The plug-in's ground check,
+nets, port checks, device recognition and clean-up tools still look at datatype 0: with such a stackup the Stackup
+line and the export dialog say so. IHP stackups name no datatypes and work as before.
+
 **Create Circuit: symbol and testbench for xschem.** For ngspice and Xyce, Create Circuit now also writes an
 xschem symbol of the circuit and a starter testbench with the PDK's model library. Open the testbench in xschem,
 add sources and loads, and simulate: the symbol brings the circuit file along. `examples/cascode/xschem` has a

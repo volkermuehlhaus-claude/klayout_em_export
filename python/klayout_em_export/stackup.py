@@ -18,6 +18,18 @@ def _layer_number(element, path):
                            "(expressions in layer numbers are not supported)") from None
 
 
+def _datatype(element, path, key="Datatype"):
+    """The datatype a stackup element names for its layer (stackup format 3.2), or None."""
+    value = element.get(key)
+    if value is None or value.strip() == "":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        raise StackupError(f"{path}: {key}=\"{value}\" of {element.get('Name') or 'an Operand'} is not a plain "
+                           "number (expressions in datatypes are not supported)") from None
+
+
 def _number(value):
     """float of a plain number attribute; None for a missing value or a "=expression" (variables)."""
     try:
@@ -63,6 +75,22 @@ class Stackup:
         # dielectrics with a Boundary= layer: their outline is drawn in the GDS
         self.boundary_layers = sorted({int(e.get("Boundary")) for e in root.iter("Dielectric")
                                        if (e.get("Boundary") or "").lstrip("-").isdigit()})
+        # Datatype per layer (stackup format 3.2): {GDS layer number: datatypes the stackup names for it}, from
+        # <Layer Datatype>, <Operand Datatype> and <Dielectric BoundaryDatatype>. gds2palace reads such a layer from
+        # exactly that datatype. plain: the layer numbers named without one, read from the export's datatypes.
+        self.datatypes, self.plain = {}, set()
+        named = [(_layer_number(e, path), _datatype(e, path)) for e in root.iter("Layer")]
+        named += [(_layer_number(o, path), _datatype(o, path)) for e in root.iter("DerivedLayer")
+                  for o in e.iter("Operand")]
+        named += [(int(e.get("Boundary")), _datatype(e, path, "BoundaryDatatype")) for e in root.iter("Dielectric")
+                  if (e.get("Boundary") or "").lstrip("-").isdigit()]
+        for number, datatype in named:
+            if number in self.derived:
+                continue                    # computed by gds2palace, nothing is read from the layout
+            if datatype is None:
+                self.plain.add(number)
+            else:
+                self.datatypes.setdefault(number, set()).add(datatype)
         # <Substrate Offset="..."> (schema 2.0): shifts every Layer that has no Reference. None: given by a variable,
         # then those layers compare only among themselves (z_range anchor "offset")
         offsets = [e.get("Offset") for e in root.iter("Substrate")]
@@ -71,6 +99,23 @@ class Stackup:
 
     def layer(self, name):
         return next((l for l in self.layers if l.name == name), None)
+
+    def reads(self, layer, datatype, purposes=(0,)):
+        """True if the EM model reads the shapes on this GDS layer and datatype: the datatype the stackup names for
+        that layer number, or, for a layer number named without a Datatype, one of the export's datatypes
+        (purposes)."""
+        return datatype in self.datatypes.get(layer, ()) or (layer in self.plain and datatype in purposes)
+
+    def datatype_note(self):
+        """A warning text if the stackup names datatypes for its layers, else None. The export keeps the right
+        shapes; the plug-in's checks and tools look at datatype 0."""
+        if not self.datatypes:
+            return None
+        named = ", ".join(f"{layer}/{datatype}" for layer in sorted(self.datatypes)
+                          for datatype in sorted(self.datatypes[layer]))
+        return (f"the stackup reads layers from the datatypes it names ({named}). The export keeps these shapes, "
+                "but ground, nets, port checks, devices and the clean-up tools look at datatype 0 only: check the "
+                "ports and the ground yourself")
 
     def metal_names(self):
         """Conductor and sheet layers, top to bottom as in the file: the choices for port layers."""

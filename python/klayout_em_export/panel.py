@@ -376,6 +376,8 @@ class EMPanel(pya.QWidget):
             if unresolved:
                 self.stackup_step.set(WARN, f"{os.path.basename(path)}: height of {', '.join(unresolved)} is not "
                                       "resolved (given by a variable), so it is left out of nets and ground", path)
+            elif stackup.datatype_note():
+                self.stackup_step.set(WARN, f"{os.path.basename(path)}: {stackup.datatype_note()}", path)
             else:
                 self.stackup_step.set(*gui.stackup_label(layout, kind))
             self.stackup_detail.setText(path)

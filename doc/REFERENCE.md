@@ -303,6 +303,11 @@ N-port), and VACASK cannot yet (Touchstone import is planned).
 - Xyce: snp2le's Xyce format (`--format xyce`, newer than snp2le 0.1.20 on PyPI, found through `snp2le convert
   --help`). An older snp2le gives its ngspice format with `noisy=0` removed: then the fit's resistors add noise that
   is not the structure's, and the header notes that noise results are not valid.
+- Datatype per stackup layer (`Datatype` on `<Layer>` and `<Operand>`, `BoundaryDatatype` on `<Dielectric>`,
+  stackup format 3.2): the export keeps such a layer on exactly that datatype, whatever the export's datatypes
+  are; a layer without one follows the export's datatypes. Ground, nets, port checks, devices, Remove Dummy Fill,
+  Fill Density Holes and Merge Metal read datatype 0 only; the Stackup step and the export dialog warn when the
+  stackup names datatypes. An expression as `Datatype` is refused.
 - Pin names: a pin has the label of its net in the layout, else `port<N>` (N: the port number of the export).
   The export reads the labels: the texts of the exported cell itself (not of its subcells, whose texts are the pin
   names of devices and pads) on the layer number of a traced metal, with the technology's label datatypes (IHP: 25
