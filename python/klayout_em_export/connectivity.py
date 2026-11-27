@@ -18,6 +18,7 @@ inductor winding grounded at its far end, a grounded stub) is a DC path, but no 
 import pya
 
 from .ports import device_of
+from .stackup import find_layer as layer_index, split_key
 from .tech import device_level_names
 
 OTHER_NETS_LIMIT = 300              # count the separate other nets only up to this many polygons
@@ -26,22 +27,25 @@ NEAR_UM = 10.0                      # neighbourhood of a port or cut (µm, at le
 
 
 def wiring(stackup):
-    """(metal layers {GDS layer: name}, connections [(via layer, layer below, layer above)]) that are traced."""
+    """(metal layers {layer key: name}, connections [(via key, key below, key above)]) that are traced. A layer key
+    is the GDS layer number, or for a stackup layer with a Datatype a number that holds both (stackup.layer_key):
+    a metal on 68/20 and its via on 68/44 are two layers."""
     device_level = device_level_names()      # see the module doc
-    metals = {l.layer: l.name for l in stackup.layers
+    metals = {l.key: l.name for l in stackup.layers
               if l.kind == "conductor" and l.layer not in stackup.derived and l.name not in device_level}
     connections = []
     for via, (below, above) in stackup.via_neighbors().items():
-        if len(below) == 1 and len(above) == 1 and below[0].layer in metals and above[0].layer in metals:
-            connections.append((via, below[0].layer, above[0].layer))
+        if len(below) == 1 and len(above) == 1 and below[0].key in metals and above[0].key in metals:
+            connections.append((via, below[0].key, above[0].key))
     return metals, connections
 
 
 def layer_regions(layout, cell, layers, box=None, datatype=0):
-    """{GDS layer: merged Region} of the given layers in cell, clipped to box (Box in dbu) if given."""
+    """{layer key: merged Region} of the given layers (keys) in cell, clipped to box (Box in dbu) if given. A layer
+    with a Datatype is read from it, the others from datatype."""
     out = {}
     for layer in layers:
-        li = layout.find_layer(layer, datatype)
+        li = layer_index(layout, layer, datatype)
         if li is None:
             continue
         region = pya.Region(cell.begin_shapes_rec(li) if box is None else cell.begin_shapes_rec_touching(li, box))
@@ -156,17 +160,17 @@ def _touches(net, layer, region):
 
 class GroundCheck:
     def __init__(self):
-        self.net = {}               # {GDS layer: Region} of the ground net
-        self.names = {}             # GDS layer -> stackup name
+        self.net = {}               # {layer key: Region} of the ground net
+        self.names = {}             # layer key -> stackup name
         self.source = ""            # how the ground was found
         self.ports = []             # numbers of the via ports that reach the ground net
         self.via_ports = []         # numbers of all via ports with settings
         self.pieces = 1             # separate ground pieces (marked shapes that do not connect in the region)
         self.other_polygons = 0     # metal polygons not in the ground net
         self.other_nets = None      # number of separate other nets, None if not counted (too many polygons)
-        self.metals = {}            # {GDS layer: merged Region} of the traced metals in the region
-        self.vias = {}              # {GDS layer: Region} of the vias between them, as blocks (via_blocks)
-        self.connections = []       # [(via layer, layer below, layer above)]
+        self.metals = {}            # {layer key: merged Region} of the traced metals in the region
+        self.vias = {}              # {layer key: Region} of the vias between them, as blocks (via_blocks)
+        self.connections = []       # [(via key, key below, key above)]
         self.shorted = []           # numbers of via ports whose two ends are on the same net (a short circuit)
 
     def summary(self):
@@ -213,7 +217,7 @@ def _seed(layout, cell, layer, point, box):
     at = pya.Box(point, point).enlarged(1, 1)
     if box is None or box.contains(point):
         return pya.Region(at)
-    li = layout.find_layer(layer, 0)
+    li = layer_index(layout, layer)
     if li is None:
         return pya.Region()
     shapes = pya.Region()
@@ -228,7 +232,7 @@ def _seed(layout, cell, layer, point, box):
 
 
 def check_ground(layout, cell, stackup, box=None, seeds=(), ports=None):
-    """Ground net in cell (clipped to box, Box in dbu). seeds: [(GDS layer, Point)] marked ground shapes; without
+    """Ground net in cell (clipped to box, Box in dbu). seeds: [(layer key, Point)] marked ground shapes; without
     them the ground is found from ports ({layer: Port} from ports.collect_ports)."""
     metal_names, connections = wiring(stackup)
     metals = layer_regions(layout, cell, metal_names, box)
@@ -329,18 +333,23 @@ def check_ground(layout, cell, stackup, box=None, seeds=(), ports=None):
 
 
 def net_labels(layout, cell, layers, datatypes=None):
-    """The net labels drawn in cell: [(text, Point in dbu, GDS layer)] for the texts on the given GDS layer numbers
-    (the traced metals) and datatypes (the technology's NET_LABEL_DATATYPES; None: any). Only texts of the cell
-    itself: texts inside subcells are the pin names of devices and pads, not the designer's net names."""
+    """The net labels drawn in cell: [(text, Point in dbu, layer key)] for the texts on the GDS layer numbers of the
+    given layers (keys of the traced metals) and datatypes (the technology's NET_LABEL_DATATYPES; None: any). Only
+    texts of the cell itself: texts inside subcells are the pin names of devices and pads, not the designer's net
+    names. A text is listed once for each traced metal on its layer number."""
+    by_number = {}
+    for key in layers:
+        by_number.setdefault(split_key(key)[0], []).append(key)
     out = []
     for li in layout.layer_indexes():
         info = layout.get_info(li)
-        if info.layer not in layers or (datatypes is not None and info.datatype not in datatypes):
+        if info.layer not in by_number or (datatypes is not None and info.datatype not in datatypes):
             continue
         for shape in cell.shapes(li).each(pya.Shapes.STexts):
             text = shape.text
             if text.string.strip():
-                out.append((text.string.strip(), pya.Point(text.x, text.y), info.layer))
+                for key in by_number[info.layer]:
+                    out.append((text.string.strip(), pya.Point(text.x, text.y), key))
     return out
 
 

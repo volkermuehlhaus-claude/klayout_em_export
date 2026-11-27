@@ -352,6 +352,12 @@ all known technologies (`tech.device_level_names`), so it needs no layout. A rul
 lowest conductor is the diffusion in a stackup with front end, but Metal1 in a stackup without it, and nothing in
 the stackup tells the two apart.
 
+The traced layers are keyed by `stackup.layer_key`: the GDS layer number, or for a layer with a Datatype (stackup
+format 3.2) a number that holds layer and datatype, as gds2palace's layer id. Keyed by the plain number, a metal on
+68/20 and its via on 68/44 would be one layer, and a lookup on datatype 0 would find nothing of either. With IHP
+stackups every key is the layer number, so nothing changes there. `stackup.find_layer(layout, key)` reads a key's
+shapes, `Stackup.key_of(layer, datatype)` maps a selected shape back to its stackup layer.
+
 ### Vias traced as blocks
 
 Tracing tests vias against the growing net, and a large layout has tens of thousands of vias per layer (77k on Via3

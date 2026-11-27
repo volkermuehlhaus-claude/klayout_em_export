@@ -17,7 +17,7 @@ from .pipeline import EM_REGION, META_GROUND, META_OUTPUT, META_STACKUP, export_
 from .ports import DIRECTIONS, PROP_KEY, PortSettings, check_ports, collect_ports, ports_of, settings_of
 from .selection import Selection
 from .simcfg import em_export_purposes, own_setup_files
-from .stackup import Stackup
+from .stackup import Stackup, find_layer as layer_index, key_text
 from .thermal import describe_markers, export_thermal, heat_sources, heat_target, marker_preview, target_names
 
 # remembered choices; KLAYOUT_EM_EXPORT_SETTINGS moves the file (the tests use their own, never the user's)
@@ -286,7 +286,8 @@ def mark_ground():
             skipped += 1
             continue
         info = layout.get_info(obj.layer)
-        if info.layer not in traced or info.datatype != 0:
+        key = stackup.key_of(info.layer, info.datatype)       # the stackup layer read from these shapes
+        if key not in traced:
             skipped += 1
             continue
         shapes += 1
@@ -296,8 +297,8 @@ def mark_ground():
                 polygon = part.dup()
                 break
         inside = polygon.decompose_trapezoids()[0].bbox().center()    # a trapezoid is convex: its center is inside
-        if (info.layer, inside) not in seeds:           # marking the same shape again adds nothing
-            seeds.append((info.layer, inside))
+        if (key, inside) not in seeds:                  # marking the same shape again adds nothing
+            seeds.append((key, inside))
     if not shapes:
         pya.MessageBox.warning("EM Export", "Select one or more metal shapes of the ground first (shapes, not "
                                "instances; on the stackup's wiring layers).", pya.MessageBox.Ok)
@@ -307,15 +308,15 @@ def mark_ground():
 
 
 def _shapes_at_point(layout, cell, stackup, point):
-    """[(GDS layer, name, polygon in cell coordinates)] of the traced metals with a shape containing point (Point
+    """[(layer key, name, polygon in cell coordinates)] of the traced metals with a shape containing point (Point
     in dbu), through the hierarchy of cell, top metal first; one shape per metal."""
     from .connectivity import wiring
     traced = wiring(stackup)[0]
     out = []
     for l in stackup.layers:
-        if l.layer not in traced:
+        if l.key not in traced:
             continue
-        li = layout.find_layer(l.layer, 0)
+        li = layer_index(layout, l.key)
         if li is None:
             continue
         it = cell.begin_shapes_rec_touching(li, pya.Box(point, point))
@@ -324,7 +325,7 @@ def _shapes_at_point(layout, cell, stackup, point):
             if not shape.is_text() and shape.polygon is not None:
                 polygon = shape.polygon.transformed(it.trans())
                 if polygon.inside(point):
-                    out.append((l.layer, l.name, polygon))
+                    out.append((l.key, l.name, polygon))
                     break
             it.next()
     return out
@@ -378,10 +379,10 @@ def mark_ground_at(layout, cell, stackup, point):
 def unmark_ground_at(layout, cell, stackup, point):
     """Remove the ground marks that lie in the shapes drawn at point (Point in dbu): the marks of a shape you
     marked by a click or by Mark Selected. Returns the names of the metals unmarked."""
-    names = {l.layer: l.name for l in stackup.layers}
+    names = stackup.names()
     kept, removed = [], []
     for layer, seed in ground_seeds(layout):
-        li = layout.find_layer(layer, 0)
+        li = layer_index(layout, layer)
         hit = False
         if li is not None:
             it = cell.begin_shapes_rec_touching(li, pya.Box(point, point))
@@ -390,7 +391,7 @@ def unmark_ground_at(layout, cell, stackup, point):
                 hit = not shape.is_text() and shape.polygon is not None and shape.polygon.transformed(it.trans()).inside(seed)
                 it.next()
         if hit:
-            removed.append(names.get(layer, str(layer)))
+            removed.append(names.get(layer, key_text(layer)))
         else:
             kept.append((layer, seed))
     if removed:
@@ -422,7 +423,7 @@ def remove_dummy_fill():
         pya.MessageBox.warning("EM Export", "Choose a stackup first.", pya.MessageBox.Ok)
         return
     from .dummyfill import MINCOUNT, remove_dummy_fill as remove
-    names = {l.layer: l.name for l in stackup.layers}
+    names = stackup.names()
     _status("Removing dummy fill...", 0)
     backup_original(layout)
     view.transaction("Remove dummy fill")
@@ -434,7 +435,7 @@ def remove_dummy_fill():
         pya.MessageBox.info("EM Export", f"No dummy fill found in {cv.cell.name}: no floating shapes on a stackup "
                             f"metal that repeat {MINCOUNT} times or more.", pya.MessageBox.Ok)
         return
-    lines = [f"{names.get(l, l)} ({l}/{d}): {n}" for (l, d), n in sorted(removed.items())]
+    lines = [f"{names.get(stackup.key_of(l, d), names.get(l, l))} ({l}/{d}): {n}" for (l, d), n in sorted(removed.items())]
     pya.MessageBox.info("EM Export", f"Removed {sum(removed.values())} dummy fill shapes from {cv.cell.name}" +
                         (f" ({cells} empty fill cells deleted)" if cells else "") + ":\n" + "\n".join(lines) +
                         "\n\nFill is a floating shape on a stackup metal (no via, label, port or device touching "
@@ -1003,8 +1004,8 @@ class ExportDialog(pya.QDialog):
         if shapes_only:
             self.completed = self.selection.completed(self.stackup)
             ports = ports_of(self.em_layout, self.cell, self.completed.ports, stackup=self.stackup)
-            names = {l.layer: l.name for l in self.stackup.layers}
-            added = [f"{n} {names.get(layer, layer)}" for layer, n in sorted(self.completed.added_vias.items())]
+            names = self.stackup.names()
+            added = [f"{n} {names.get(layer, key_text(layer))}" for layer, n in sorted(self.completed.added_vias.items())]
             if self.completed.added_ports:
                 added.append(f"{self.completed.added_ports} port shape(s)")
             if self.completed.added_patches:

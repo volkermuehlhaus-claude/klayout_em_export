@@ -2,14 +2,16 @@
 on the drawing datatype, adds floating metal to the EM model.
 
 Process independent: the fill is told by what it is, not by datatype or cell names. A shape is dummy fill when
-- it is on a conductor or sheet layer of the stackup (any datatype). Never on a via layer of the stackup (any
-  datatype): vias and via arrays are repeated, isolated shapes too, and are never removed;
-- it floats: merged over the hierarchy with the drawn metal of its layer (datatype 0, the geometry the stackup and
-  the export use) and the other shapes of its own datatype, its polygon touches no via of the stackup's via layers
-  above or below that metal, no text, no port shape, and no device or PDK cell. Other datatypes are left out of
-  this merge: markers (IHP's no-fill area 23, ...) are no metal, and fill tiles abut them. Drawn metal (datatype 0)
-  is EM model geometry, so it is judged more carefully: a drawn polygon touching a shape of any other datatype
-  (a marker, a pin) stays;
+- it is on the layer number of a conductor or sheet of the stackup (any datatype). Never on a via layer of the
+  stackup: vias and via arrays are repeated, isolated shapes too, and are never removed. A via with a Datatype in
+  the stackup (a metal on 68/20 and its via on 68/44) protects that datatype, a via without one its whole layer
+  number; the datatypes that the stackup names for its other layers are never fill either;
+- it floats: merged over the hierarchy with the drawn metal of its layer (the layer's Datatype in the stackup, else
+  datatype 0: the geometry the stackup and the export use) and the other shapes of its own datatype, its polygon
+  touches no via of the stackup's via layers above or below that metal, no text, no port shape, and no device or
+  PDK cell. Other datatypes are left out of this merge: markers (IHP's no-fill area 23, ...) are no metal, and fill
+  tiles abut them. Drawn metal is EM model geometry, so it is judged more carefully: a drawn polygon touching a
+  shape of any other datatype (a marker, a pin) stays;
 - it repeats: every drawn shape of that floating polygon has a bounding-box size found at least MINCOUNT times
   among the shapes of the floating polygons (judged per drawn shape, as abutting fill tiles merge into large
   blocks; a floating shield or test structure with one shape of its own size stays).
@@ -21,23 +23,27 @@ import pya
 
 from .density import plain_cells
 from .export import PORT_LAYERS
+from .stackup import split_key
 
 MINCOUNT = 20
 
 
-def _flat(layout, cell, layer_numbers, merged=True):
-    """A copy of all shapes of the given layer numbers (all datatypes) in cell and its subcells, merged, or (merged
-    False) one polygon per shape."""
+def _flat_keys(layout, cell, keys):
+    """A merged copy of all shapes of the given stackup layer keys (stackup.layer_key) in cell and its subcells: a
+    layer without a Datatype with all datatypes of its number, a layer with one on that datatype only."""
+    numbers = {split_key(k)[0] for k in keys if split_key(k)[1] is None}
+    pairs = {split_key(k) for k in keys if split_key(k)[1] is not None}
     region = pya.Region()
-    region.merged_semantics = merged
     for li in layout.layer_indexes():
-        if layout.get_info(li).layer in layer_numbers:
+        info = layout.get_info(li)
+        if info.layer in numbers or (info.layer, info.datatype) in pairs:
             region.insert(cell.begin_shapes_rec(li))
-    return region.merged() if merged else region
+    return region.merged()
 
 
 def _flat_datatypes(layout, cell, layer, datatypes, merged=True):
-    """As _flat, for one layer number and the given datatypes only."""
+    """A copy of the shapes of one layer number and the given datatypes in cell and its subcells, merged, or
+    (merged False) one polygon per shape."""
     region = pya.Region()
     region.merged_semantics = merged
     for li in layout.layer_indexes():
@@ -89,38 +95,47 @@ def _blocked(layout, cell, stackup):
 
 
 def fill_layers(stackup):
-    """Layer numbers searched for fill: the stackup's conductors and sheets, without vias and derived layers."""
-    vias = {l.layer for l in stackup.layers if l.kind == "via"}
-    return sorted({l.layer for l in stackup.layers if l.is_metal and l.layer not in stackup.derived} - vias
-                  - set(PORT_LAYERS))
+    """Layer keys searched for fill: the stackup's conductors and sheets, without derived layers, port layers and
+    the layer numbers of vias without a Datatype."""
+    vias = {l.layer for l in stackup.layers if l.kind == "via" and l.datatype is None}
+    return sorted({l.key for l in stackup.layers if l.is_metal and l.layer not in stackup.derived
+                   and l.layer not in vias and l.layer not in PORT_LAYERS})
+
+
+def _protected(stackup, layer, drawn):
+    """Datatypes of this layer number that are never fill: those the stackup names for its other layers (a via on
+    68/44 next to the metal on 68/20)."""
+    return {l.datatype for l in stackup.layers if l.layer == layer and l.datatype is not None} - {drawn}
 
 
 def find_fill(layout, cell, stackup, mincount=MINCOUNT):
     """{(layer, datatype): Region of the dummy fill polygons (merged)} in cell and its subcells. Each datatype is
-    judged with the drawn metal (datatype 0) of its layer, not with the other datatypes (markers); drawn metal alone,
-    and kept where it touches a shape of another datatype."""
-    neighbors = stackup.via_neighbors()             # {via layer: (metals below, metals above)}
+    judged with the drawn metal of its layer (its Datatype in the stackup, else datatype 0), not with the other
+    datatypes (markers); drawn metal alone, and kept where it touches a shape of another datatype."""
+    neighbors = stackup.via_neighbors()             # {via key: (metals below, metals above)}
     blocked = _blocked(layout, cell, stackup)
     out = {}
-    for layer in fill_layers(stackup):
-        datatypes = sorted({layout.get_info(li).datatype for li in layout.layer_indexes()
-                            if layout.get_info(li).layer == layer})
+    for key in fill_layers(stackup):
+        layer, drawn = split_key(key)
+        drawn = 0 if drawn is None else drawn
+        present = {layout.get_info(li).datatype for li in layout.layer_indexes() if layout.get_info(li).layer == layer}
+        datatypes = sorted(present - _protected(stackup, layer, drawn))
         if not datatypes:
             continue
-        vias = [v for v, (below, above) in neighbors.items() if layer in [l.layer for l in below + above]]
-        contact = _flat(layout, cell, set(vias)) if vias else pya.Region()
+        vias = [v for v, (below, above) in neighbors.items() if key in [l.key for l in below + above]]
+        contact = _flat_keys(layout, cell, vias) if vias else pya.Region()
         texts = _texts(layout, cell, layer)
         for datatype in datatypes:
-            # fill on other datatypes: with the drawn metal only, not with the markers. Drawn metal (datatype 0) is EM
-            # model geometry, so be careful: a drawn polygon touching a shape of any other datatype stays
-            with_drawn = {0} if datatype == 0 else {0, datatype}
+            # fill on other datatypes: with the drawn metal only, not with the markers. Drawn metal is EM model
+            # geometry, so be careful: a drawn polygon touching a shape of any other datatype stays
+            with_drawn = {drawn} if datatype == drawn else {drawn, datatype}
             metal = _flat_datatypes(layout, cell, layer, with_drawn)
             if metal.is_empty():
                 continue
             floating = metal.not_interacting(contact & metal.sized(1)) if not contact.is_empty() else metal
             floating = floating.not_interacting(texts).not_interacting(blocked)
-            if datatype == 0 and len(datatypes) > 1 and not floating.is_empty():
-                others = _flat_datatypes(layout, cell, layer, set(datatypes) - {0}, merged=False)
+            if datatype == drawn and len(present) > 1 and not floating.is_empty():
+                others = _flat_datatypes(layout, cell, layer, present - {drawn}, merged=False)
                 floating = floating.not_interacting(others & floating.sized(1))
             if floating.is_empty():
                 continue

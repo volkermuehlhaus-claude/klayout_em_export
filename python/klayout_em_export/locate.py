@@ -3,16 +3,18 @@
 import pya
 
 from .export import PORT_LAYERS, port_layer_numbers
+from .stackup import find_layer as layer_index
 
 
 def drawn_metals(stackup):
-    """[(name, GDS layer)] of the stackup metals drawn directly in the GDS, top to bottom.
+    """[(name, layer key)] of the stackup metals drawn directly in the GDS, top to bottom (the key: the GDS layer
+    number, or number and datatype for a layer with a Datatype, see stackup.layer_key).
     Derived layers (e.g. the SG13G2 resistor sheets) are computed by gds2palace and are left out."""
-    return [(l.name, l.layer) for l in stackup.layers if l.is_metal and l.layer not in stackup.derived]
+    return [(l.name, l.key) for l in stackup.layers if l.is_metal and l.layer not in stackup.derived]
 
 
 def _region(layout, cell, layer, box, datatype=0):
-    li = layout.find_layer(layer, datatype)
+    li = layer_index(layout, layer, datatype)
     if li is None:
         return pya.Region()
     return pya.Region(cell.begin_shapes_rec_touching(li, box)).merged()
@@ -41,8 +43,8 @@ def _manhattan(edge):
 
 
 def _searched(stackup, layers):
-    """(rank, name, GDS layer) of the drawn metals to search: all, or only those whose GDS layer is in layers (the
-    EM Port tool passes the visible ones). The rank stays the metal's place in the stackup, top first."""
+    """(rank, name, layer key) of the drawn metals to search: all, or only those whose key is in layers (the EM
+    Port tool passes the visible ones, tool.visible_layers). The rank stays the metal's place in the stackup, top first."""
     return [(rank, name, layer) for rank, (name, layer) in enumerate(drawn_metals(stackup))
             if layers is None or layer in layers]
 
@@ -50,7 +52,7 @@ def _searched(stackup, layers):
 def edge_at(layout, cell, stackup, point, tol, layers=None):
     """(metal name, Edge) of the horizontal or vertical metal edge nearest to point within tol, preferring the
     upper metal when edges of several metals are equally close. None if there is none.
-    layers: GDS layer numbers to search (None: all drawn metals)."""
+    layers: layer keys to search (None: all drawn metals)."""
     search = pya.Box(point, point).enlarged(tol, tol)
     best = None
     for rank, name, layer in _searched(stackup, layers):
@@ -76,7 +78,7 @@ def gap_at(layout, cell, stackup, point, reach, layers=None):
     """(metal name, Box, direction) of the narrowest gap around point between two shapes of one metal, looking up
     to reach in each direction: the box bridges the gap over the length both facing edges share. Direction X for
     a gap between left and right metal, Y for below and above. None if the point is on metal or no gap is found.
-    layers: GDS layer numbers to search (None: all drawn metals)."""
+    layers: layer keys to search (None: all drawn metals)."""
     search = pya.Box(point, point).enlarged(reach, reach)
     best = None
     for rank, name, layer in _searched(stackup, layers):

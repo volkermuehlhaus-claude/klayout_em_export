@@ -9,7 +9,7 @@ ports of the joined result) and every piece into <export>_pieces/ (p1.gds, p1.si
   {"version": 1, "folder": "<export>_pieces", "cell": ..., "stackup": ...,
    "pieces": [{"name": "p1", "box": [x1, y1, x2, y2], "gds": "<export>_pieces/p1.gds", "simcfg": ..., "portmap": ...,
                "fingerprint": sha256, "ports": {"<exported port>": <layout port>}}],
-   "links": [{"ports": [["p1", 2], ["p2", 1]], "cut": [x1, y1, x2, y2], "line": [layer, v0, v1]}],
+   "links": [{"ports": [["p1", 2], ["p2", 1]], "cut": [x1, y1, x2, y2], "line": [layer key, v0, v1]}],
    "external": [{"port": 1, "piece": "p1", "piece_port": 1, "layout_port": 1}],
    "ground": [[layer, x, y]]}
 
@@ -28,6 +28,7 @@ from .connectivity import check_ground
 from .ports import collect_ports
 from .export import EM_REGION
 from .simcfg import write_simcfg
+from .stackup import find_layer as layer_index, key_text
 from .regions import Piece, cuts_of, find_cuts, piece_number, read_pieces, set_pieces, union_box
 
 SET_VERSION = 1
@@ -307,7 +308,7 @@ def export_pieces(layout, cell, stackup, gds_path, technology, seeds=(), layout_
         box = _port_boxes(pa)[0]
         lo, hi = (box.bottom, box.top) if cut.vertical else (box.left, box.right)
         target = pa.settings.target if pa.settings else ""
-        gds_layer = next((l.layer for l in stackup.layers if l.name == target), None)
+        gds_layer = next((l.key for l in stackup.layers if l.name == target), None)     # layer key
         links.append({"ports": [[a, by_layer[pa.layer][1]], [b, by_layer[pb.layer][1]]],
                       "cut": _um(layout, cut.edge.bbox()),
                       "line": [gds_layer, round(lo * layout.dbu, 6), round(hi * layout.dbu, 6)], "layer": target})
@@ -433,7 +434,7 @@ def import_warnings(layout, cell, stackup, imported, devices=()):
         layer, lo, hi = link["line"]
         cut = pya.DBox(*link["cut"]).to_itype(dbu)
         vertical = cut.width() == 0
-        li = layout.find_layer(layer, 0) if layer is not None else None
+        li = layer_index(layout, layer) if layer is not None else None
         probe_lo, probe_hi = round(lo / dbu), round(hi / dbu)
         # the line is still there if the metal of its layer meets the cut over the same extent (not just some metal
         # there: a shifted ground strip would cover the old position too)
@@ -458,7 +459,7 @@ def import_warnings(layout, cell, stackup, imported, devices=()):
                 a, b = link["ports"][0][0], link["ports"][1][0]
                 out.append(f"the cut {a}|{b} runs through device {d.pcell} {d.id.split('@')[0]}")
     for layer, x, y in imported.get("ground", []):
-        li = layout.find_layer(int(layer), 0)
+        li = layer_index(layout, int(layer))
         p = pya.Point(round(x / dbu), round(y / dbu))
         hit = False
         if li is not None:
@@ -468,6 +469,7 @@ def import_warnings(layout, cell, stackup, imported, devices=()):
                 hit = not shape.is_text() and shape.polygon is not None and shape.polygon.transformed(it.trans()).inside(p)
                 it.next()
         if not hit:
-            name = next((l.name for l in stackup.layers if l.layer == int(layer)), str(layer)) if stackup else str(layer)
+            name = (next((l.name for l in stackup.layers if l.key == int(layer)), key_text(layer)) if stackup
+                    else key_text(layer))
             out.append(f"the ground mark on {name} at ({x:g}, {y:g}) hits no metal")
     return out

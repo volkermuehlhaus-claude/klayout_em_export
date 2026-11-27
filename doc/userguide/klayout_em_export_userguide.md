@@ -231,7 +231,7 @@ are hard to hide. **EM > Clean Up Layout > Remove Dummy Fill** removes them from
   other datatypes, such as a no-fill area, do not count: they are no metal. It repeats when its size is found at
   least 20 times among the floating shapes. This works for any fill tool, whether the fill is drawn on its own
   datatype or on the drawing datatype, flat or as a cell placed many times.
-- **Drawn metal** (datatype 0) is part of your EM model, so it is treated more carefully: a drawn shape that touches
+- **Drawn metal** (datatype 0, or the datatype the stackup names for the layer) is part of your EM model, so it is treated more carefully: a drawn shape that touches
   a shape of any other datatype, a marker for example, stays.
 - **What stays:** all vias and via arrays (via layers are not searched at all), every shape that a via, a label or a
   port touches, a single floating shape (a shield, a test structure), devices, and the layers that are not metals of

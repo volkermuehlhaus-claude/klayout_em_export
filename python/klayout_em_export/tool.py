@@ -14,7 +14,7 @@ import pya
 from . import gui
 from .locate import create_layers, edge_at, gap_at, metals_at, next_port_layer, via_layers
 from .ports import PortSettings
-from .stackup import Stackup
+from .stackup import Stackup, layer_key
 
 def _status(text, seconds):
     """Status bar message (KLayout 0.29: MainWindow.message, time in ms; LayoutView has none)."""
@@ -49,8 +49,10 @@ def candidate(view, stackup, p, buttons, layers="visible"):
 
 
 def visible_layers(view):
-    """GDS layer numbers (datatype 0) shown in the layer panel for the current layout: a click picks only what the
-    designer sees. A hidden group hides its members (visible is the effective visibility, visible?(true))."""
+    """Layer keys (stackup.layer_key) of the layers shown in the layer panel for the current layout: a click picks
+    only what the designer sees. Each visible layer gives the key of a stackup layer with that Datatype, and on
+    datatype 0 also the plain layer number (a stackup layer without a Datatype). A hidden group hides its members
+    (visible is the effective visibility, visible?(true))."""
     index = _get(view.active_cellview_index)
     layout = view.active_cellview().layout()
     layers = set()
@@ -60,6 +62,7 @@ def visible_layers(view):
         li = _get(node.layer_index)
         if not _get(node.has_children) and _get(node.cellview) == index and _get(node.visible, True) and li >= 0:
             info = layout.get_info(li)
+            layers.add(layer_key(info.layer, info.datatype))
             if info.datatype == 0:
                 layers.add(info.layer)
         it.next()

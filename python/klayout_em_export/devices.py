@@ -17,6 +17,7 @@ import pya
 from .connectivity import wiring
 from .locate import create_layers, free_port_layers, next_port_layer
 from .ports import DEVICE_KEY, PROP_KEY, PortSettings
+from .stackup import find_layer as layer_index
 from .tech import for_layout
 
 REF_NAME = "REF_FOR_TRANSISTOR"
@@ -41,14 +42,14 @@ class Device:
 
 
 def _lowest_wiring_metal(stackup):
-    """(GDS layer, name) of the lowest metal that a via connects to another metal (Metal1): the ports start there.
+    """(layer key, name) of the lowest metal that a via connects to another metal (Metal1): the ports start there.
     Not simply the lowest conductor: a stackup can define ground planes (SUBGND, BACKSIDEGND) as PEC conductors
     below it, which no via connects."""
     metals, connections = wiring(stackup)
     connected = {layer for _, below, above in connections for layer in (below, above)} or set(metals)
     if not connected:
         return None, None               # no conductor in the stackup: no device can be replaced
-    z = {l.layer: stackup.z_range(l) for l in stackup.layers}
+    z = {l.key: stackup.z_range(l) for l in stackup.layers}
     layer = min(connected, key=lambda l: z[l][1] if z.get(l) else 1e9)
     return layer, metals[layer]
 
@@ -59,7 +60,7 @@ def device_level_layers(stackup):
     m1, _ = _lowest_wiring_metal(stackup)
     if m1 is None:
         return set()
-    m1_zmin = stackup.z_range(next(l for l in stackup.layers if l.layer == m1))[1]
+    m1_zmin = stackup.z_range(next(l for l in stackup.layers if l.key == m1))[1]
     out = set()
 
     def add(number):
@@ -85,7 +86,7 @@ def find_devices(layout, cell, stackup, technology=None):
     m1, _ = _lowest_wiring_metal(stackup)
     if m1 is None:
         return [], []
-    m1_li = layout.find_layer(m1, 0)
+    m1_li = layer_index(layout, m1)
     ctx = tech.context(layout, stackup)
     # each cell once, not each instance: a filled layout has hundreds of thousands of instances of a few dozen cells
     found = {}          # cell index: (name, params, problem) of the device cells and the cells with a problem
@@ -177,7 +178,7 @@ def ref_patch(device, margin):
 def touching_patches(layout, cell, stackup):
     """[(device id, device id)] of REF patches made by replace that touch or overlap: one shared reference."""
     ref = next((l for l in stackup.layers if l.name == REF_NAME), None)
-    li = None if ref is None else layout.find_layer(ref.layer, 0)
+    li = None if ref is None else layer_index(layout, ref.key)
     if li is None:
         return []
     patches = []
@@ -201,7 +202,8 @@ def replace(view, cell, stackup, devices, include_resistors=False):
     done = {}
     todo = [d for d in devices if not (d.replaced or d.problems or (d.is_resistor and not include_resistors))]
     terminals = sum(len(d.terminals) for d in todo)
-    create_layers(layout, [(ref.layer, 0)] + [(l, 0) for l in free_port_layers(layout, cell, terminals,
+    ref_layer = (ref.layer, 0 if ref.datatype is None else ref.datatype)     # its Datatype, if the stackup names one
+    create_layers(layout, [ref_layer] + [(l, 0) for l in free_port_layers(layout, cell, terminals,
                                                                                     stackup=stackup)])
     view.transaction("Replace devices by ports")
     try:
@@ -209,7 +211,7 @@ def replace(view, cell, stackup, devices, include_resistors=False):
             if device.replaced or device.problems or (device.is_resistor and not include_resistors):
                 continue
             # properties set at insertion: a set_property after insert can move the shape (crash in KLayout 0.29.4)
-            cell.shapes(layout.layer(ref.layer, 0)).insert(
+            cell.shapes(layout.layer(*ref_layer)).insert(
                 ref_patch(device, margin), layout.properties_id([[DEVICE_KEY, f"device:{device.id}"]]))
             for terminal in sorted(device.terminals):
                 layer = next_port_layer(layout, cell, stackup=stackup)
@@ -266,7 +268,7 @@ def unconnected_terminals(layout, devices, check):
         c = layout.cell(device.cell_index)
         own = {}
         for layer in check.metals:
-            li = layout.find_layer(layer, 0)
+            li = layer_index(layout, layer)
             own[layer] = pya.Region() if li is None else pya.Region(c.begin_shapes_rec(li)).transformed(device.trans)
         for terminal, (pin_layer, pins) in sorted(device.terminals.items()):
             if pin_layer not in check.metals:

@@ -129,10 +129,12 @@ In detail:
    - **Clean Up Layout > Remove Dummy Fill** (once, if the layout has fill): removes the dummy metal fill of the
      current cell, one undo step. Process independent, told by what it is, not by datatype or cell names: a shape
      on a conductor or sheet layer of the stackup (any datatype) that floats (merged with the drawn metal of its
-     layer, datatype 0, it touches no via of the stackup, no label, no port and no device or PDK cell; other
-     datatypes such as no-fill markers are no metal and are left out) and whose size repeats at least 20 times
-     among the floating shapes. Drawn metal (datatype 0) is judged more carefully: a drawn shape touching a shape of
-     another datatype stays. Vias and via arrays are never removed: via layers are not searched. A fill tile cell
+     layer, its Datatype in the stackup or else datatype 0, it touches no via of the stackup, no label, no port and
+     no device or PDK cell; other datatypes such as no-fill markers are no metal and are left out) and whose size
+     repeats at least 20 times among the floating shapes. Drawn metal is judged more carefully: a drawn shape
+     touching a shape of another datatype stays. Vias and via arrays are never removed: via layers are not searched,
+     and a datatype that the stackup names for another layer (a via on 68/44 next to the metal on 68/20) is not
+     either. A fill tile cell
      loses the placements that are fill; a cell left empty or unplaced is deleted. On a 60 GHz PA: 68,312 fill
      shapes in about 14 s, on a 180 GHz PA 617,659 (all of its fill, Activ included) in about 60 s.
    - **Clean Up Layout > Fill Density Holes and Merge Metal** (once, before ports): fewer edges to mesh and fewer
@@ -305,9 +307,14 @@ N-port), and VACASK cannot yet (Touchstone import is planned).
   is not the structure's, and the header notes that noise results are not valid.
 - Datatype per stackup layer (`Datatype` on `<Layer>` and `<Operand>`, `BoundaryDatatype` on `<Dielectric>`,
   stackup format 3.2): the export keeps such a layer on exactly that datatype, whatever the export's datatypes
-  are; a layer without one follows the export's datatypes. Ground, nets, port checks, devices, Remove Dummy Fill,
-  Fill Density Holes and Merge Metal read datatype 0 only; the Stackup step and the export dialog warn when the
-  stackup names datatypes. An expression as `Datatype` is refused.
+  are; a layer without one follows the export's datatypes. The checks and tools read such a layer from its
+  datatype too, and a layer without one from datatype 0: ground, nets, short circuits, ports at the region edge,
+  net labels (on the layer number, any datatype the technology allows), the EM Port tool (a visible layer counts
+  by its datatype), ground marks (a selected shape counts if the stackup reads its layer/datatype), Export
+  Selection, Remove Dummy Fill and Fill Density Holes and Merge Metal. Two stackup layers on one GDS layer number
+  stay apart: the plug-in keys each layer by number and datatype (`stackup.layer_key`, as gds2palace's layer id,
+  e.g. 10006800020 for 68/20), also in the ground marks it stores. Device recognition is the technology's (IHP:
+  datatype 0 and the pin datatype 2). An expression as `Datatype` is refused.
 - Pin names: a pin has the label of its net in the layout, else `port<N>` (N: the port number of the export).
   The export reads the labels: the texts of the exported cell itself (not of its subcells, whose texts are the pin
   names of devices and pads) on the layer number of a traced metal, with the technology's label datatypes (IHP: 25

@@ -326,7 +326,7 @@ def export_thermal(layout, cell, stackup, gds_path, technology, box=None, lvsdb=
         if source.target == unheated_name:         # not with an older stackup, whose resistors heat Activ
             unheated += source.unheated
     if unheated_layer is not None and not unheated.is_empty():
-        extra[(unheated_layer.layer, 0)] = unheated.merged()
+        extra[(unheated_layer.layer, 0 if unheated_layer.datatype is None else unheated_layer.datatype)] = unheated.merged()
     for layer, region in markers.items():
         extra[(layer, 0)] = region
     ref = stackup.layer(REF_NAME)       # patches of an EM export's replaced devices: no part of a thermal model

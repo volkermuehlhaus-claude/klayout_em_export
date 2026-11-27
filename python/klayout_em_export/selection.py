@@ -11,6 +11,7 @@ from .devices import REF_NAME
 from .export import PORT_LAYERS
 from .locate import drawn_metals
 from .ports import DEVICE_KEY
+from .stackup import split_key
 
 
 def instance_trans(obj):
@@ -26,6 +27,13 @@ def instance_trans(obj):
     if last is None or last != obj.inst():
         trans = trans * obj.inst().cplx_trans
     return trans
+
+
+
+def _on(key, datatype):
+    """(GDS layer, datatype) of a stackup layer key: its own Datatype, else datatype."""
+    number, own = split_key(key)
+    return number, datatype if own is None else own
 
 
 class Selection:
@@ -84,8 +92,9 @@ class Selection:
         out = Selection(self.layout, self.cell)
         out.regions = {key: region.dup() for key, region in self.regions.items()}
         out.ports = list(self.ports)
-        metal_layers = [layer for _, layer in drawn_metals(stackup)]
-        metals = [self.regions[(l, datatype)] for l in metal_layers if (l, datatype) in self.regions]
+        # the (layer, datatype) of each metal: its Datatype in the stackup, else datatype
+        metal_layers = [_on(key, datatype) for _, key in drawn_metals(stackup)]
+        metals = [self.regions[pair] for pair in metal_layers if pair in self.regions]
         if not metals:
             out._add_patches(stackup, datatype)
             return out
@@ -96,7 +105,8 @@ class Selection:
 
         # vias that land on at least two selected metal layers
         for via in (l for l in stackup.layers if l.kind == "via" and l.layer not in stackup.derived):
-            li = self.layout.find_layer(via.layer, datatype)
+            pair = _on(via.key, datatype)
+            li = self.layout.find_layer(*pair)
             if li is None:
                 continue
             candidates = pya.Region(self.cell.begin_shapes_rec_touching(li, search))
@@ -105,11 +115,11 @@ class Selection:
                 for j in range(i + 1, len(metals)):
                     connecting += candidates.interacting(metals[i]).interacting(metals[j])
             connecting.merge()
-            selected = out.regions.get((via.layer, datatype), pya.Region())
+            selected = out.regions.get(pair, pya.Region())
             new = connecting - selected
             if not new.is_empty():
-                out.regions[(via.layer, datatype)] = (selected + connecting).merged()
-                out.added_vias[via.layer] = new.count()
+                out.regions[pair] = (selected + connecting).merged()
+                out.added_vias[via.key] = new.count()
 
         # port shapes touching selected metal (zero-width lines: test with a box grown by 1 dbu)
         have = {(key, shape.bbox().transformed(trans).to_s()) for key, shape, trans in out.ports}
@@ -134,7 +144,7 @@ class Selection:
     def _add_patches(self, stackup, datatype):
         """Add the REF patch of each replaced device whose ports are in the selection: its ports end on it."""
         ref = next((l for l in stackup.layers if l.name == REF_NAME), None)
-        li = None if ref is None else self.layout.find_layer(ref.layer, datatype)
+        li = None if ref is None else self.layout.find_layer(*_on(ref.key, datatype))
         if li is None:
             return
         wanted = set()
@@ -144,7 +154,7 @@ class Selection:
                 wanted.add(value.rsplit(":", 1)[0])
         if not wanted:
             return
-        key = (ref.layer, datatype)
+        key = _on(ref.key, datatype)
         selected = self.regions.get(key, pya.Region())
         patches = pya.Region()
         it = self.cell.begin_shapes_rec(li)

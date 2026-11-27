@@ -37,13 +37,13 @@ WALL_OF = {"left": "xmin", "right": "xmax", "bottom": "ymin", "top": "ymax"}   #
 class Crossing:
     def __init__(self, side, layer, name, edge):
         self.side = side            # left, right, bottom, top
-        self.layer = layer          # GDS layer of the metal
+        self.layer = layer          # layer key of the metal (stackup.layer_key)
         self.name = name            # stackup name of the metal
         self.edge = edge            # pya.Edge on the box edge (dbu)
         self.ground = False         # part of the ground net: no port
         self.grounded_line = False  # on the ground net, but joined to the ground at the cut only far away: a signal
         self.plane = False          # covers the whole side of the box: a plane, no port
-        self.ground_layer = None    # (GDS layer, name) of the ground metal at the cut, for a signal crossing
+        self.ground_layer = None    # (layer key, name) of the ground metal at the cut, for a signal crossing
         self.wall_ground = False    # ground metal reaches this side of the box (any metal): enough for a port wall
         self.port = None            # number of a port already on this crossing
         self.piece = None           # name of the piece checked (several EM region boxes), else None
@@ -121,7 +121,7 @@ def find_crossings(layout, cell, stackup, box, ground, piece=None, cuts=()):
     """Crossings of the traced metals with the edge of box (Box in dbu), classified with ground (GroundCheck of
     the same box). With several EM region boxes: piece = the name of the box checked, cuts = its regions.Cuts; a
     crossing on a cut is matched only with a port of this piece, other crossings with ports of no piece or this one."""
-    z = {l.layer: stackup.z_range(l) for l in stackup.layers}
+    z = {l.key: stackup.z_range(l) for l in stackup.layers}
     ports = _port_lines(layout, cell, box, stackup)
     out = []
     # sides of the box that ground metal reaches (any metal): enough ground for a port wall there

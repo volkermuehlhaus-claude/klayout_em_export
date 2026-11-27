@@ -30,6 +30,38 @@ def _datatype(element, path, key="Datatype"):
                            "number (expressions in datatypes are not supported)") from None
 
 
+LAYER_ID_BASE = 10 ** 10        # layer key of a layer with a Datatype: 1 | 5 digits layer | 5 digits datatype,
+LAYER_ID_FACTOR = 10 ** 5       # as gds2palace's layer id (68/20 is 10006800020)
+
+
+def layer_key(number, datatype=None):
+    """The key of a stackup layer: its GDS layer number, or, for a layer with a Datatype, a number that holds both
+    (68/20 is 10006800020, as gds2palace's layer id). The traced metals, vias, nets and ground marks are keyed by it,
+    so two stackup layers on one GDS layer number (a metal on 68/20, its via on 68/44) stay apart."""
+    return number if datatype is None else LAYER_ID_BASE + number * LAYER_ID_FACTOR + datatype
+
+
+def split_key(key):
+    """(GDS layer number, datatype or None) of a layer key."""
+    key = int(key)
+    if key >= LAYER_ID_BASE:
+        return (key - LAYER_ID_BASE) // LAYER_ID_FACTOR, key % LAYER_ID_FACTOR
+    return key, None
+
+
+def key_text(key):
+    """A layer key as text: "8", or "68/20" with a datatype."""
+    number, datatype = split_key(key)
+    return str(number) if datatype is None else f"{number}/{datatype}"
+
+
+def find_layer(layout, key, datatype=0):
+    """The layout's layer index of a layer key, or None: the key's own datatype, else datatype (the drawing
+    datatype, 0)."""
+    number, own = split_key(key)
+    return layout.find_layer(number, datatype if own is None else own)
+
+
 def _number(value):
     """float of a plain number attribute; None for a missing value or a "=expression" (variables)."""
     try:
@@ -39,11 +71,14 @@ def _number(value):
 
 
 class StackupLayer:
-    def __init__(self, name, kind, layer, material, element=None):
+    def __init__(self, name, kind, layer, material, element=None, path="stackup"):
         self.name = name
         self.kind = kind            # conductor, via, sheet or dielectric
-        self.layer = layer
+        self.layer = layer          # GDS layer number
         self.material = material
+        # the GDS datatype the layer is read from (stackup format 3.2), None: the drawing datatype (0)
+        self.datatype = _datatype(element, path) if element is not None else None
+        self.key = layer_key(layer, self.datatype)
         get = element.get if element is not None else (lambda key: None)
         self.reference, self.reference_edge = get("Reference"), (get("ReferenceEdge") or "Top").capitalize()
         self.zmin_attr, self.zmax_attr = get("Zmin"), get("Zmax")
@@ -53,7 +88,7 @@ class StackupLayer:
         return self.kind in ("conductor", "sheet")
 
     def __repr__(self):
-        return f"StackupLayer({self.name!r}, {self.kind!r}, {self.layer})"
+        return f"StackupLayer({self.name!r}, {self.kind!r}, {key_text(self.key)})"
 
 
 class Stackup:
@@ -62,7 +97,7 @@ class Stackup:
         root = ET.parse(path).getroot()
         # the layer type in lower case: stackups write conductor, Conductor or CONDUCTOR (gds2palace reads any case)
         self.layers = [StackupLayer(e.get("Name"), (e.get("Type") or "").lower(), _layer_number(e, path),
-                                    e.get("Material"), e)
+                                    e.get("Material"), e, path)
                        for e in root.iter("Layer")]
         # dielectric name -> (Reference, ReferenceEdge, Thickness), for the z positions of the layers
         self.dielectrics = {e.get("Name"): (e.get("Reference"), (e.get("ReferenceEdge") or "Top").capitalize(),
@@ -106,16 +141,19 @@ class Stackup:
         (purposes)."""
         return datatype in self.datatypes.get(layer, ()) or (layer in self.plain and datatype in purposes)
 
-    def datatype_note(self):
-        """A warning text if the stackup names datatypes for its layers, else None. The export keeps the right
-        shapes; the plug-in's checks and tools look at datatype 0."""
-        if not self.datatypes:
-            return None
-        named = ", ".join(f"{layer}/{datatype}" for layer in sorted(self.datatypes)
-                          for datatype in sorted(self.datatypes[layer]))
-        return (f"the stackup reads layers from the datatypes it names ({named}). The export keeps these shapes, "
-                "but ground, nets, port checks, devices and the clean-up tools look at datatype 0 only: check the "
-                "ports and the ground yourself")
+    def key_of(self, number, datatype):
+        """The key of the stackup layer read from these shapes (GDS layer number and datatype), or None: a layer
+        with that Datatype, else a layer of that number without one, on the drawing datatype 0. The checks and
+        tools read layers without a Datatype on datatype 0 only."""
+        if datatype in self.datatypes.get(number, ()):
+            return layer_key(number, datatype)
+        if number in self.plain and datatype == 0:
+            return number
+        return None
+
+    def names(self):
+        """{layer key: stackup name}."""
+        return {l.key: l.name for l in self.layers}
 
     def metal_names(self):
         """Conductor and sheet layers, top to bottom as in the file: the choices for port layers."""
@@ -170,11 +208,11 @@ class Stackup:
         return za[1] > zb[1]
 
     def via_neighbors(self, delta=1e-5):
-        """{via layer number: ([metals directly below], [metals directly above])} as StackupLayers, for the vias
+        """{via layer key: ([metals directly below], [metals directly above])} as StackupLayers, for the vias
         drawn in the GDS that have drawn metals on both sides (z within delta, as gds2palace). Lists, because
         a via can sit on more than one layer (Cont: on Activ and on the REF_FOR_TRANSISTOR sheet)."""
         metals = [(l, self.z_range(l)) for l in self.layers if l.is_metal and l.layer not in self.derived]
-        out = {}
+        out = {}                    # keyed by the via's layer key
         for via in (l for l in self.layers if l.kind == "via" and l.layer not in self.derived):
             z = self.z_range(via)
             if z is None:
@@ -182,7 +220,7 @@ class Stackup:
             below = [m for m, mz in metals if mz and mz[0] == z[0] and abs(mz[2] - z[1]) < delta]
             above = [m for m, mz in metals if mz and mz[0] == z[0] and abs(mz[1] - z[2]) < delta]
             if below and above:
-                out[via.layer] = (below, above)
+                out[via.key] = (below, above)
         return out
 
     def gds_layers(self):

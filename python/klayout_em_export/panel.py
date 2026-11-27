@@ -20,6 +20,7 @@ from .lvs import assign_names, read_lvs_devices
 from .pieces import outer_ports, piece_ports, split_state
 from .ports import collect_ports, device_of, export_numbering, export_port_numbers, is_complete, port_problems
 from .regions import cuts_of, is_split
+from .stackup import find_layer as layer_index
 from .thermal import describe_markers, heat_sources, marker_layers, marker_preview, target_names
 
 OK, WARN, ERROR = gui.OK, gui.WARN, gui.ERROR
@@ -376,8 +377,6 @@ class EMPanel(pya.QWidget):
             if unresolved:
                 self.stackup_step.set(WARN, f"{os.path.basename(path)}: height of {', '.join(unresolved)} is not "
                                       "resolved (given by a variable), so it is left out of nets and ground", path)
-            elif stackup.datatype_note():
-                self.stackup_step.set(WARN, f"{os.path.basename(path)}: {stackup.datatype_note()}", path)
             else:
                 self.stackup_step.set(*gui.stackup_label(layout, kind))
             self.stackup_detail.setText(path)
@@ -447,7 +446,7 @@ class EMPanel(pya.QWidget):
         layers = wiring(stackup)[0]
         total = 0
         for layer in layers:
-            li = layout.find_layer(layer, 0)
+            li = layer_index(layout, layer)
             if li is not None:
                 total += pya.Region(cell.begin_shapes_rec(li) if clip is None else
                                     cell.begin_shapes_rec_touching(li, clip)).count()

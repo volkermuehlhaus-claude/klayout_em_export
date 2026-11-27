@@ -60,8 +60,6 @@ def export_checks(layout, cell, stackup, ports, devices, seeds=(), box=None):
     renumbered: [(exported number, layout number)] if the export renumbers, else [];
     numbering_error: why the export is not possible (too many ports), else None."""
     problems = check_ports(ports, stackup)
-    if stackup.datatype_note():
-        problems.append(stackup.datatype_note())
     check = check_ground(layout, cell, stackup, _clip(layout, box), seeds, ports)
     problems += [f"port {n}: both ends are on the same net (short circuit)" for n in check.shorted]
     problems += [f"{t} of {d.pcell} {d.id.split('@')[0]} is not connected to any wiring"

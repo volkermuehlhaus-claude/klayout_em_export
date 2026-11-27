@@ -49,8 +49,9 @@ def density_holes(region, mincount=MINCOUNT):
 
 
 def merged_layers(stackup):
-    """GDS layers that are filled and merged: the stackup's conductors and sheets, without vias and derived layers."""
-    return sorted({l.layer for l in stackup.layers if l.is_metal and l.layer not in stackup.derived})
+    """Layer keys that are filled and merged: the stackup's conductors and sheets, without vias and derived layers. A
+    layer with a Datatype is filled and merged on that datatype, the others on datatype 0."""
+    return sorted({l.key for l in stackup.layers if l.is_metal and l.layer not in stackup.derived})
 
 
 def _geometry(shape):
@@ -120,12 +121,13 @@ def fill_and_merge(layout, cell, stackup):
     """Fill the density holes (found over the hierarchy), move the metal of plain subcells (plain_cells: placed at least
     twice, or once and touching the fill) into cell, and merge each metal layer of cell. Returns ({layer name: Result}
     for the layers changed, number of subcells whose metal was moved). Run it inside an undo transaction."""
-    names = {l.layer: l.name for l in stackup.layers}
+    from .stackup import find_layer as layer_index
+    names = stackup.names()
     plain_subcells = plain_cells(layout, cell, stackup)
     moved_cells = set()
     out = {}
     for layer in merged_layers(stackup):
-        li = layout.find_layer(layer, 0)
+        li = layer_index(layout, layer)
         if li is None:
             continue
         result = Result()
