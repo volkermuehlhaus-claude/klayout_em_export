@@ -1,70 +1,56 @@
 # What's new
 
+## Highlights
+
+- Stackups with a datatype per layer, and metals computed from other layers (0.5.0)
+- Create Circuit writes an xschem symbol and testbench; pins named after your nets (0.5.0)
+- MOS capacitors and the varactor replaced by ports (0.5.0)
+- Faster with large layouts; EM off when the panel is closed (0.4.0)
+- Split a large region into pieces; port walls (0.3.0)
+- Thermal export (0.3.0)
+
 ## 0.5.0 (24 November 2026)
 
-**Stackups with a datatype per layer.** A stackup can name the GDS datatype of a layer (gds2palace 0.13.0), as
-technologies need that put a metal and its via on one layer number (a metal on 68/20, its via on 68/44). The
-plug-in now reads such a layer from that datatype everywhere: the export, the ground check and the nets, short
-circuits, the ports proposed at the region edge, net names, the EM Port tool, ground marks, Export Selection,
-Remove Dummy Fill (which never removes the via on the same layer number) and Fill Density Holes and Merge Metal.
-Before, the export dropped these shapes unless their datatype was among the export's datatypes, and the checks
-looked at datatype 0. Device recognition needs a technology module; IHP stackups name no datatypes and work as
-before.
+Needs gds2palace 0.13.0 or newer.
 
-**Metals computed from other layers.** A stackup can compute a metal from drawn layers, e.g. Metal1 as 8/0 NOT
-8/24 to cut slits into the drawn metal. The checks now treat such a derived conductor or via as the metal it is,
-computed as gds2palace does: you can mark a shape on 8/0 as ground (a click on the frame marks Metal1), the slits
-separate the pieces, Via1 connects Metal1 to Metal2, and the EM Port tool and the ports at the region edge work on
-Metal1. Before, a derived metal was left out of the checks, so a ground drawn on 8/0 could not be marked or found.
-Remove Dummy Fill and Fill Density Holes and Merge Metal work on the layer you draw such a metal on (8/0), never on
-the slits (8/24). For a metal drawn on several layers (Metal1 = 8/0 OR 9/0), both judge the combined metal: an
-island on 8/0 that reaches a via through 9/0 is no fill, and openings framed by shapes on both layers are filled. Derived sheets, such as the SG13G2 resistors, are still no wiring.
+### New
 
-**Create Circuit: symbol and testbench for xschem.** For ngspice and Xyce, Create Circuit now also writes an
-xschem symbol of the circuit and a starter testbench with the PDK's model library. Open the testbench in xschem,
-add sources and loads, and simulate: the symbol brings the circuit file along. `examples/cascode/xschem` has a
-finished testbench of the cascode with bias tees, S-parameter analysis and result graphs (user's guide, chapter
-"Back to the circuit").
+**Datatype per stackup layer.**  
+A stackup can name the datatype of a layer, e.g. a metal on 68/20 and its via on 68/44. The export, checks, ports,
+ground marks and clean-up tools read each layer from its datatype. IHP stackups work as before.
+[Reference](REFERENCE.md)
 
-**Create Circuit: pins named after your nets.** The circuit's pins now have the names of their nets in the layout,
-e.g. `Cas_in`, `Cas_out` and `Cas_Bias` for the cascode, instead of `port1`, `port2` and `port15`. The export reads
-the text labels on the metals (SG13G2: a metal's text or pin layer) and writes them into the port map. A pin whose
-net has no label is still `port<N>`. The order of the pins is the same as before, so existing testbenches keep
-working. Export again to get the names: a port map of an earlier export has none.
+**Metals computed from other layers.**  
+A stackup can compute a metal, e.g. Metal1 as 8/0 NOT 8/24 to cut slits. The checks now trace such a metal: a click
+on the 8/0 frame marks Metal1 as ground, and the slits separate the pieces. Remove Dummy Fill and Merge Metal work on
+8/0 and never touch the slits. [Ground checks](userguide/klayout_em_export_userguide.md#checks-ground-and-short-circuits),
+[dummy fill](userguide/klayout_em_export_userguide.md#dummy-metal-fill)
 
-Works with gds2palace 0.13.0 or newer for the resistor heads below; an older gds2palace stops on them with "Cont
-touches another conductor layer". Without `HEAT_RESISTOR` in the stackup, nothing changes.
+**xschem symbol and testbench.**  
+For ngspice and Xyce, Create Circuit also writes an xschem symbol and a starter testbench with the PDK models.
+`examples/cascode/xschem` has a finished one. [Using it in xschem](userguide/klayout_em_export_userguide.md#using-it-in-xschem)
 
-**Thermal: resistor heads carry heat to the contacts.** The heat source of a resistor is its polysilicon body; the
-polysilicon heads under the contacts are not heated, but they conduct heat from the body into the contacts and
-Metal1. Before, they were missing, and the body reached its contacts only through oxide. The thermal export now
-draws them on `HEAT_RESISTOR` as plain shapes, without the contacts' footprints, and the thermal map lists their area
-(`unheated_poly_um2`). For a 0.5 × 0.5 µm rhigh this lowers the thermal resistance by about 40 %, for 4 × 4 µm by
-about 8 %.
+**Pins named after your nets.**  
+Circuit pins take the names of the text labels on the metals (`Cas_in`, `Cas_out`), else `port<N>` as before. The
+pin order is unchanged. Export again to get the names.
 
-**Fix: thermal export with a stackup without the devices' heat source layer** (e.g. an interposer stackup without
-Activ). The Thermal mode refused it ("no layer for the heat sources"), even for a region without devices, so the
-layout could not be exported at all. That layer is now only needed when the region has devices: without devices,
-Sources says "no devices in the region" as usual, and the export writes the model, with your own heat source markers.
-A region with devices and no such layer is still refused, and the message says how many devices need it.
+**MOS capacitors and the varactor replaced by ports.**  
+moscap_n, moscap_p and SVaricap are replaced like transistors; Create Circuit adds their PDK models.
+[Transistors and resistors](userguide/klayout_em_export_userguide.md#transistors-and-resistors), [limits](userguide/klayout_em_export_userguide.md#limits)
 
-**MOS capacitors and the varactor are replaced by ports.** moscap_n (G, SUB), moscap_p (G, NW) and the HV varactor
-SVaricap (G1, W, G2) are recognized and replaced like transistors, one port per terminal; Create Circuit puts in
-their PDK models (sg13_moscap_n/p from cornerMOSCAP.lib, sg13_hv_svaricap from cornerMOShv.lib, its substrate node
-to ground). Their capacitance is in the gate oxide, which the EM model does not have. Their pins are named only by a
-property in IHP's newer PDK versions; without it, the pins over the gate poly are the gates. No heat source in a
-thermal export. In Create Circuit, ngspice runs both models; VACASK and Xyce only partly (the PDK's models for them,
-see Limits in the user's guide). A static cell of them (no pcell context) is found but not replaced: no size.
+**SG13CMOS5L with IHP's own PDK.**  
+Tested with IHP-Open-PDK's `ihp-sg13cmos5l` and its `SG13_dev` library.
 
-**Fix: rf MOSFETs with IHP's current PDK.** IHP-Open-PDK since October 2026 (main and dev, until IHP takes in
-the fix in its pycell4klayout-api of 19 November 2026) draws stray copies of the rf MOSFETs' pins, off the device,
-named only by a property. The device was refused ("pin ... has no name") and not replaced. Such copies no longer
-count as pins.
+### Changed behaviour
 
-**SG13CMOS5L with IHP's own PDK.** IHP-Open-PDK now has `ihp-sg13cmos5l`, with its own `SG13_dev` library for the
-KLayout technology `sg13cmos5l`. The plug-in is tested with it (`tests/test_cmos5l.py`): the same devices, terminals,
-ports and thermal export as with SG13G2. The tests' PDK checkout (`tests/setup_pdk.sh`) now has both processes, at
-IHP-Open-PDK main of 10 November 2026.
+- Thermal: the polysilicon heads of resistors now carry heat to the contacts (on `HEAT_RESISTOR`). Lower thermal
+  resistance, e.g. about 40 % for a 0.5 × 0.5 µm rhigh. [Heat sources](userguide/klayout_em_export_userguide.md#heat-sources)
+
+### Fixes
+
+- Thermal export with a stackup without the devices' heat source layer (e.g. an interposer) was refused even
+  without devices.
+- rf MOSFETs from IHP's current PDK were refused ("pin ... has no name").
 
 ## 0.4.0 (16 November 2026)
 
