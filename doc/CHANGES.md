@@ -16,7 +16,9 @@ before.
 computed as gds2palace does: you can mark a shape on 8/0 as ground (a click on the frame marks Metal1), the slits
 separate the pieces, Via1 connects Metal1 to Metal2, and the EM Port tool and the ports at the region edge work on
 Metal1. Before, a derived metal was left out of the checks, so a ground drawn on 8/0 could not be marked or found.
-Derived sheets, such as the SG13G2 resistors, are still no wiring.
+Remove Dummy Fill and Fill Density Holes and Merge Metal work on the layer you draw such a metal on (8/0), never on
+the slits (8/24). For a metal drawn on several layers (Metal1 = 8/0 OR 9/0), both judge the combined metal: an
+island on 8/0 that reaches a via through 9/0 is no fill, and openings framed by shapes on both layers are filled. Derived sheets, such as the SG13G2 resistors, are still no wiring.
 
 **Create Circuit: symbol and testbench for xschem.** For ngspice and Xyce, Create Circuit now also writes an
 xschem symbol of the circuit and a starter testbench with the PDK's model library. Open the testbench in xschem,

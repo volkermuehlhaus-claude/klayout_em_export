@@ -356,6 +356,11 @@ Derived conductors and vias are traced too (`Stackup.is_traced_derived`): a desi
 the drawn layers, e.g. 8/0 NOT 8/24 to cut slits, and then the ground is drawn on 8/0. `layers.region` computes a
 derived layer from its operands as gds2palace does, inside the checked box (grown by the Oversize). Derived sheets
 are left out: the SG13G2 resistors sit at the Activ level, where they would hang on Cont and are no wiring.
+The clean-up tools (`dummyfill`, `density`) change drawn shapes, so they work on the layers that hold a derived
+conductor's metal (`Stackup.derived_metal_sources`: 8/0, not the slits on 8/24, which they protect). Whether a
+shape floats is also judged on the computed derived metal (`dummyfill._connected_derived`), and the holes of an OR
+metal on the combined metal (`density._joint_holes`): with 8/0 OR 9/0 neither operand alone shows the connection or
+the hole.
 
 The traced layers are keyed by `stackup.layer_key`: the GDS layer number, or for a layer with a Datatype (stackup
 format 3.2) a number that holds layer and datatype, as gds2palace's layer id. Keyed by the plain number, a metal on

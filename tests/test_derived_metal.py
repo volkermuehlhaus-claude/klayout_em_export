@@ -127,4 +127,57 @@ result = export_flat(ly, top, st, os.path.join(OUT, "derived_em.gds"))
 check({(8, 0), (8, 24), (10, 0), (19, 0)} <= set(result.kept) and (8, 2) not in result.kept,
       f"kept: {sorted(result.kept)}")
 
+# the clean-up tools work on Metal1's drawn layer 8/0, never on the slits (8/24)
+from klayout_em_export.density import fill_and_merge, merged_layers
+from klayout_em_export.dummyfill import fill_layers, find_fill, remove_dummy_fill
+
+check(st.metal_sources(908) == {layer_key(8, 0)}, f"Metal1's metal is drawn on 8/0: {st.metal_sources(908)}")
+check(st.derived_metal_sources() == {layer_key(8, 0): [908]}, "8/0 is the drawn layer of Metal1, not of RS")
+check(layer_key(8, 0) in fill_layers(st) and layer_key(8, 24) not in fill_layers(st), "fill searched on 8/0")
+check(layer_key(8, 0) in merged_layers(st) and layer_key(8, 24) not in merged_layers(st)
+      and 5 not in merged_layers(st), "8/0 merged, not the slits nor the resistor's operands")
+
+
+def fill_layout():
+    """The frame and pad above, plus: 30 floating 2x2 tiles on 8/0 (fill), 30 on 8/22 (fill on another datatype),
+    30 slits 1x1 on 8/24 off the metal (repeated, floating: but no fill, they are slits), one tile with a Via1 to a
+    Metal2 tile (not floating), and a 160 x 160 cheesed plate on 8/0 with 25 holes of 2 x 2 (density holes)."""
+    ly = pya.Layout()
+    ly.dbu = 0.001
+    top = ly.create_cell("TOP")
+    top.shapes(ly.layer(8, 0)).insert(frame)
+    top.shapes(ly.layer(8, 24)).insert(um(-5, 98, 25, 102))
+    top.shapes(ly.layer(8, 24)).insert(um(175, 98, 205, 102))
+    for i in range(30):
+        top.shapes(ly.layer(8, 0)).insert(um(300 + 5 * i, 0, 302 + 5 * i, 2))
+        top.shapes(ly.layer(8, 22)).insert(um(300 + 5 * i, 10, 302 + 5 * i, 12))
+        top.shapes(ly.layer(8, 24)).insert(um(300 + 5 * i, 20, 301 + 5 * i, 21))
+    top.shapes(ly.layer(8, 0)).insert(um(300, 30, 302, 32))       # same size as the fill, but with a via
+    top.shapes(ly.layer(19, 0)).insert(um(300.5, 30.5, 301.5, 31.5))
+    top.shapes(ly.layer(10, 0)).insert(um(300, 30, 302, 32))
+    plate = pya.Region(um(0, 300, 160, 460))
+    for i in range(5):
+        for j in range(5):
+            plate -= pya.Region(um(20 + 30 * i, 320 + 30 * j, 22 + 30 * i, 322 + 30 * j))
+    top.shapes(ly.layer(8, 0)).insert(plate)
+    return ly, top
+
+
+ly2, top2 = fill_layout()
+fill = find_fill(ly2, top2, st)
+check(set(fill) == {(8, 0), (8, 22)}, f"fill found on 8/0 and 8/22, not on the slits 8/24: {sorted(fill)}")
+check(fill.get((8, 0), pya.Region()).count() == 30, f"30 tiles on 8/0, not the one with a via: "
+      f"{fill.get((8, 0), pya.Region()).count()}")
+removed, _ = remove_dummy_fill(ly2, top2, st)
+check(removed == {(8, 0): 30, (8, 22): 30}, f"removed: {removed}")
+check(pya.Region(top2.begin_shapes_rec(ly2.layer(8, 24))).count() == 32, "the slits stay")
+
+result, _ = fill_and_merge(ly2, top2, st)
+check("Metal1 (8/0)" in result and result["Metal1 (8/0)"].filled == 25,
+      f"density holes of 8/0 filled: {[(n, r.filled) for n, r in result.items()]}")
+plate_after = pya.Region(top2.begin_shapes_rec(ly2.layer(8, 0))).interacting(pya.Region(um(1, 301, 2, 302)))
+check(plate_after.count() == 1 and all(p.holes() == 0 for p in plate_after.each()), "the plate has no holes left")
+m1_after = region(ly2, top2, st, 908, um(-10, -10, 210, 210))
+check(m1_after.count() == 2, f"the slits still cut Metal1 in two: {m1_after.count()}")
+
 print("FAILED: " + "; ".join(failed) if failed else "all passed")

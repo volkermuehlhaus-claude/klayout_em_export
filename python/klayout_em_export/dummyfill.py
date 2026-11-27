@@ -2,7 +2,9 @@
 on the drawing datatype, adds floating metal to the EM model.
 
 Process independent: the fill is told by what it is, not by datatype or cell names. A shape is dummy fill when
-- it is on the layer number of a conductor or sheet of the stackup (any datatype). Never on a via layer of the
+- it is on the layer number of a conductor or sheet of the stackup (any datatype), or of a drawn layer of a derived
+  conductor (Metal1 = 8/0 NOT 8/24: layer 8 with 8/0 as the drawn metal; the datatypes that derived layers read,
+  here 8/24, are never fill, and the vias of Metal1 decide whether a shape floats). Never on a via layer of the
   stackup: vias and via arrays are repeated, isolated shapes too, and are never removed. A via with a Datatype in
   the stackup (a metal on 68/20 and its via on 68/44) protects that datatype, a via without one its whole layer
   number; the datatypes that the stackup names for its other layers are never fill either;
@@ -23,6 +25,7 @@ import pya
 
 from .density import plain_cells
 from .export import PORT_LAYERS
+from .layers import region as stackup_region
 from .stackup import split_key
 
 MINCOUNT = 20
@@ -95,25 +98,69 @@ def _blocked(layout, cell, stackup):
 
 
 def fill_layers(stackup):
-    """Layer keys searched for fill: the stackup's conductors and sheets, without derived layers, port layers and
-    the layer numbers of vias without a Datatype."""
-    vias = {l.layer for l in stackup.layers if l.kind == "via" and l.datatype is None}
-    return sorted({l.key for l in stackup.layers if l.is_metal and l.layer not in stackup.derived
-                   and l.layer not in vias and l.layer not in PORT_LAYERS})
+    """Layer keys searched for fill: the stackup's conductors and sheets, and the drawn layers of its derived
+    conductors (Metal1 = 8/0 NOT 8/24: 8/0, Stackup.metal_sources), without other derived layers, port layers and
+    the layer numbers of vias without a Datatype (drawn or read by a derived via)."""
+    vias = {l.layer for l in stackup.layers if l.kind == "via" and l.datatype is None and l.layer not in stackup.derived}
+    for l in stackup.layers:
+        if l.kind == "via" and l.layer in stackup.derived:
+            vias |= {split_key(k)[0] for k in stackup.sources(l.layer) if split_key(k)[1] is None}
+    keys = {l.key for l in stackup.layers if l.is_metal and l.layer not in stackup.derived}
+    keys |= set(stackup.derived_metal_sources())
+    return sorted(k for k in keys if split_key(k)[0] not in vias and split_key(k)[0] not in PORT_LAYERS)
 
 
 def _protected(stackup, layer, drawn):
     """Datatypes of this layer number that are never fill: those the stackup names for its other layers (a via on
-    68/44 next to the metal on 68/20)."""
-    return {l.datatype for l in stackup.layers if l.layer == layer and l.datatype is not None} - {drawn}
+    68/44 next to the metal on 68/20) or that derived layers read (the slits of Metal1 = 8/0 NOT 8/24 on 8/24)."""
+    named = {l.datatype for l in stackup.layers if l.layer == layer and l.datatype is not None}
+    return (named | stackup.operand_datatypes(layer)) - {drawn}
+
+
+def _served(stackup, key):
+    """The stackup layer keys whose metal is drawn on key: key itself, and the derived conductors it is a drawn layer
+    of (their vias decide whether a shape floats)."""
+    return {key} | set(stackup.derived_metal_sources().get(key, []))
+
+
+def _contact(layout, cell, stackup, neighbors, served):
+    """Merged Region of the vias above and below the stackup layer keys served: drawn vias from their layers, derived
+    vias computed from their operands."""
+    contact = pya.Region()
+    for via, (below, above) in neighbors.items():
+        if not served & {l.key for l in below + above}:
+            continue
+        if split_key(via)[0] in stackup.derived:
+            shapes = stackup_region(layout, cell, stackup, via)
+            contact += shapes if shapes is not None else _flat_keys(layout, cell, stackup.sources(split_key(via)[0]))
+        else:
+            contact += _flat_keys(layout, cell, [via])
+    return contact.merged()
+
+
+def _connected_derived(layout, cell, stackup, key, neighbors, blocked):
+    """Region of the polygons of a derived conductor (computed from its operands) that are connected: touched by one
+    of its vias, a text on one of its source layer numbers, a port or a device. An operand shape inside such a polygon
+    is no fill, even if it floats on its own layer (Metal1 = 8/0 OR 9/0: an 8/0 island joined to a via by 9/0)."""
+    combined = stackup_region(layout, cell, stackup, key)
+    if combined is None or combined.is_empty():
+        return pya.Region()
+    touching = _contact(layout, cell, stackup, neighbors, {key}) & combined.sized(1)
+    for number in {split_key(k)[0] for k in stackup.sources(split_key(key)[0])}:
+        touching += _texts(layout, cell, number)
+    touching += blocked
+    return combined.interacting(touching) if not touching.is_empty() else pya.Region()
 
 
 def find_fill(layout, cell, stackup, mincount=MINCOUNT):
     """{(layer, datatype): Region of the dummy fill polygons (merged)} in cell and its subcells. Each datatype is
     judged with the drawn metal of its layer (its Datatype in the stackup, else datatype 0), not with the other
-    datatypes (markers); drawn metal alone, and kept where it touches a shape of another datatype."""
+    datatypes (markers); drawn metal alone, and kept where it touches a shape of another datatype. A drawn layer of
+    a derived conductor is judged on the derived metal too: a shape inside a connected polygon of it stays."""
     neighbors = stackup.via_neighbors()             # {via key: (metals below, metals above)}
     blocked = _blocked(layout, cell, stackup)
+    derived_of = stackup.derived_metal_sources()     # {drawn key: [derived conductor keys]}
+    connected = {}                                   # derived conductor key -> _connected_derived, computed once
     out = {}
     for key in fill_layers(stackup):
         layer, drawn = split_key(key)
@@ -122,8 +169,12 @@ def find_fill(layout, cell, stackup, mincount=MINCOUNT):
         datatypes = sorted(present - _protected(stackup, layer, drawn))
         if not datatypes:
             continue
-        vias = [v for v, (below, above) in neighbors.items() if key in [l.key for l in below + above]]
-        contact = _flat_keys(layout, cell, vias) if vias else pya.Region()
+        contact = _contact(layout, cell, stackup, neighbors, _served(stackup, key))
+        joined = pya.Region()       # connected polygons of the derived conductors drawn on this layer
+        for d in derived_of.get(key, []):
+            if d not in connected:
+                connected[d] = _connected_derived(layout, cell, stackup, d, neighbors, blocked)
+            joined += connected[d]
         texts = _texts(layout, cell, layer)
         for datatype in datatypes:
             # fill on other datatypes: with the drawn metal only, not with the markers. Drawn metal is EM model
@@ -137,6 +188,10 @@ def find_fill(layout, cell, stackup, mincount=MINCOUNT):
             if datatype == drawn and len(present) > 1 and not floating.is_empty():
                 others = _flat_datatypes(layout, cell, layer, present - {drawn}, merged=False)
                 floating = floating.not_interacting(others & floating.sized(1))
+            if not joined.is_empty() and not floating.is_empty():
+                # inside a connected polygon of the derived metal (joined there through another operand): no fill.
+                # Overlap, not touch: an island cut off by a NOT operand only touches the metal it was cut from
+                floating = floating.not_interacting(floating & joined)
             if floating.is_empty():
                 continue
             # repeated: judged on the drawn shapes, not the merged ones (abutting fill tiles merge into large

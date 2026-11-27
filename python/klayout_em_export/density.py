@@ -3,7 +3,8 @@ and export: fewer edges to mesh and fewer polygons for the checks.
 
 Density rules put many small openings into wide metal (cheesing). To the EM fields such metal is solid, but every
 opening is a hole with its own edges. Per metal layer of the stackup (conductors and sheets; not the vias, which
-gds2palace corrects as arrays, nor derived layers), merged over the whole hierarchy, the holes of all shapes are
+gds2palace corrects as arrays; for a derived conductor its drawn layers, Metal1 = 8/0 NOT 8/24: 8/0, not the slits
+on 8/24), merged over the whole hierarchy, the holes of all shapes are
 grouped by bounding-box size: a size found at least MINCOUNT times is cheesing and is filled, holes of other sizes
 belong to the circuit and stay. This is gds_prepare_for_EM's rule (gds_simplify_for_em.ground_plane_holes) without
 its ground-plane test: any shape counts. Keep the hole grouping of both in sync.
@@ -49,9 +50,11 @@ def density_holes(region, mincount=MINCOUNT):
 
 
 def merged_layers(stackup):
-    """Layer keys that are filled and merged: the stackup's conductors and sheets, without vias and derived layers. A
-    layer with a Datatype is filled and merged on that datatype, the others on datatype 0."""
-    return sorted({l.key for l in stackup.layers if l.is_metal and l.layer not in stackup.derived})
+    """Layer keys that are filled and merged: the stackup's conductors and sheets, without vias and derived layers,
+    and the drawn layers of its derived conductors (Metal1 = 8/0 NOT 8/24: 8/0, not the slits on 8/24;
+    Stackup.metal_sources). A layer with a Datatype is filled and merged on that datatype, the others on datatype 0."""
+    keys = {l.key for l in stackup.layers if l.is_metal and l.layer not in stackup.derived}
+    return sorted(keys | set(stackup.derived_metal_sources()))
 
 
 def _geometry(shape):
@@ -117,14 +120,46 @@ def plain_cells(layout, cell, stackup):
     return out
 
 
+def _joint_holes(layout, cell, stackup):
+    """{drawn layer key: [hole Polygon]}: the density holes of derived conductors made by OR (Metal1 = 8/0 OR 9/0),
+    found in the combined metal, so that a hole framed by shapes on several operands is found too. They are filled
+    on the first operand (8/0), where they join the metal. Not for NOT, AND, XOR: there a hole of the result comes
+    from the operands that cut, and filling it on the first operand would change nothing or the wrong thing."""
+    from .layers import region as stackup_region
+    from .stackup import split_key
+    sources = stackup.derived_metal_sources()
+    out = {}
+    for l in stackup.layers:
+        if l.kind != "conductor" or not stackup.is_traced_derived(l) or stackup.derived_spec[l.layer][0] != "OR":
+            continue
+        combined = stackup_region(layout, cell, stackup, l.key)
+        if combined is None:
+            continue
+        holes = density_holes(combined)[0]
+        if not holes:
+            continue
+        first = stackup.drawn_source(l.key)
+        n, own = split_key(first)
+        target = next((k for k, ds in sources.items() if l.key in ds
+                       and split_key(k)[0] == n and (split_key(k)[1] or 0) == (own or 0)), None)
+        if target is not None:
+            out.setdefault(target, []).extend(holes)
+    return out
+
+
 def fill_and_merge(layout, cell, stackup):
     """Fill the density holes (found over the hierarchy), move the metal of plain subcells (plain_cells: placed at least
     twice, or once and touching the fill) into cell, and merge each metal layer of cell. Returns ({layer name: Result}
     for the layers changed, number of subcells whose metal was moved). Run it inside an undo transaction."""
-    from .stackup import find_layer as layer_index
+    from .stackup import find_layer as layer_index, split_key
     names = stackup.names()
+    for key, derived in stackup.derived_metal_sources().items():
+        if key not in names:        # a drawn layer of a derived metal: "Metal1 (8/0)"
+            number, datatype = split_key(key)
+            names[key] = f"{', '.join(names[d] for d in derived)} ({number}/{datatype or 0})"
     plain_subcells = plain_cells(layout, cell, stackup)
     moved_cells = set()
+    joint = _joint_holes(layout, cell, stackup)
     out = {}
     for layer in merged_layers(stackup):
         li = layer_index(layout, layer)
@@ -132,6 +167,8 @@ def fill_and_merge(layout, cell, stackup):
             continue
         result = Result()
         fill, result.kept = density_holes(pya.Region(cell.begin_shapes_rec(li)))
+        if layer in joint:          # holes of an OR metal framed by shapes on several operands
+            fill = list((pya.Region(fill) + pya.Region(joint[layer])).merged().each())
         result.filled = len(fill)
         flat_before = pya.Region(cell.begin_shapes_rec(li)).count()
         own, keep = _split(cell.shapes(li))

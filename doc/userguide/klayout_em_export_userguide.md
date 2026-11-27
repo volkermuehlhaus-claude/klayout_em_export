@@ -239,6 +239,9 @@ are hard to hide. **EM > Clean Up Layout > Remove Dummy Fill** removes them from
 - A fill tile cell loses the placements that are fill. If none is left, the cell is deleted.
 - Fill on the drawing datatype is floating metal in the EM model: removing it removes its coupling capacitance. Fill
   on its own datatype is not exported anyway; removing it only cleans up the view.
+- If your stackup computes a metal from drawn layers (Metal1 as 8/0 NOT 8/24), fill is searched on the layer you
+  draw that metal on (8/0). The slits (8/24) are never fill. If the metal is drawn on several layers (Metal1 as
+  8/0 OR 9/0), a shape counts as floating only if the combined metal floats there.
 - Large layouts take a while: about 60 s for 600,000 fill shapes.
 
 ### Cheesed metal and many small shapes
@@ -253,6 +256,9 @@ layout once, before you place ports: **EM > Clean Up Layout > Fill Density Holes
 - **Merge:** then the metal of the current cell is merged into as few polygons as possible. The metal of subcells
   placed at least twice (via stacks, MIM capacitors) is merged in too, and so is the metal of a subcell that holds
   filled holes (a cheesed plane in a cell of its own).
+- For a metal the stackup computes from drawn layers (Metal1 as 8/0 NOT 8/24), the layer you draw it on (8/0) is
+  filled and merged; the slits (8/24) are left as they are. A metal drawn on several layers (8/0 OR 9/0) has its
+  openings found in the combined metal and filled on the first layer (8/0).
 - **What stays:** devices, PDK cells, other subcells, cells that are also placed somewhere else, all vias (the export
   writes every via, and gds2palace corrects the via arrays itself), texts and the plug-in's own marked shapes.
 - A message lists per metal the holes filled and the polygons before and after. On the 60 GHz PA of the examples:

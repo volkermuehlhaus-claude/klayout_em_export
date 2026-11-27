@@ -312,7 +312,14 @@ N-port), and VACASK cannot yet (Touchstone import is planned).
   marks nothing). The EM Port tool searches a derived metal when one of its operands is visible. Device
   recognition reads a derived Metal1 from its first operand. Not computed: a derived layer whose Oversize is
   given by a variable. Derived sheets (resistors) and dielectrics are no wiring. Remove Dummy Fill and Fill
-  Density Holes and Merge Metal work on the stackup's drawn layers only, not on the operands of a derived metal.
+  Density Holes and Merge Metal work on the drawn layers of a derived conductor (`Stackup.metal_sources`): every
+  operand of OR, the first of NOT, AND and SIZE (8/0), none of XOR. The other operands (the slits on 8/24) and the
+  datatypes any derived layer reads are never fill and are not filled or merged; a shape touching a via of
+  the derived metal is no fill. Operands of derived vias are never searched for fill. A shape on a drawn layer
+  that overlaps a connected polygon of the derived metal (one touched by its via, a label on a source layer, a port
+  or a device) is no fill, even if it floats on its own layer (Metal1 = 8/0 OR 9/0: an 8/0 island joined to a via
+  by 9/0). For OR, the density holes are also looked for in the combined metal and filled on the first operand;
+  not for NOT, AND, XOR, where a hole of the result comes from the operands that cut.
 - Datatype per stackup layer (`Datatype` on `<Layer>` and `<Operand>`, `BoundaryDatatype` on `<Dielectric>`,
   stackup format 3.2): the export keeps such a layer on exactly that datatype, whatever the export's datatypes
   are; a layer without one follows the export's datatypes. The checks and tools read such a layer from its

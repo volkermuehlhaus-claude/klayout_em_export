@@ -198,6 +198,56 @@ class Stackup:
             number, own = split_key(key)
         return key
 
+    def metal_sources(self, number, _seen=()):
+        """The drawn layer keys whose shapes are metal of a derived layer, through derived operands (recursive): all
+        operands of OR, the first operand of NOT, AND and SIZE (the others cut or limit it: the slits of Metal1 = 8/0
+        NOT 8/24 are on 8/24), none of XOR. The clean-up tools treat these as the derived metal's drawn layers."""
+        spec = self.derived_spec.get(number)
+        if spec is None or number in _seen or not spec[1]:
+            return set()
+        operation, operands = spec[0], spec[1]
+        if operation == "OR":
+            chosen = operands
+        elif operation in ("NOT", "AND", "SIZE"):
+            chosen = operands[:1]
+        else:
+            return set()
+        out = set()
+        for operand in chosen:
+            n, own = split_key(operand)
+            if own is None and n in self.derived_spec:
+                out |= self.metal_sources(n, _seen + (number,))
+            else:
+                out.add(operand)
+        return out
+
+    def derived_metal_sources(self):
+        """{drawn layer key: [keys of the derived conductors it is metal of]} (metal_sources of every traced derived
+        conductor): the layers Remove Dummy Fill and Fill Density Holes and Merge Metal work on for a derived metal.
+        A drawn layer that is also a stackup layer of its own is given under that layer's key (8/0 as 8)."""
+        drawn = {}
+        for l in self.layers:
+            if l.layer not in self.derived:
+                drawn[(l.layer, 0 if l.datatype is None else l.datatype)] = l.key
+        out = {}
+        for l in self.layers:
+            if l.kind == "conductor" and self.is_traced_derived(l):
+                for key in self.metal_sources(l.layer):
+                    n, own = split_key(key)
+                    out.setdefault(drawn.get((n, 0 if own is None else own), key), []).append(l.key)
+        return out
+
+    def operand_datatypes(self, number):
+        """Datatypes of a GDS layer number that operands of derived layers read (an operand without a Datatype reads
+        datatype 0)."""
+        out = set()
+        for spec in self.derived_spec.values():
+            for operand in spec[1]:
+                n, own = split_key(operand)
+                if n == number and not (own is None and n in self.derived_spec):
+                    out.add(0 if own is None else own)
+        return out
+
     def derived_keys_of(self, number, datatype):
         """Keys of the traced derived layers (is_traced_derived) computed from these shapes (GDS layer number and
         datatype): a mark on the 8/0 frame counts for Metal1 = 8/0 NOT 8/24. An operand without a Datatype is read
